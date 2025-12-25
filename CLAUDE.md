@@ -59,14 +59,17 @@ dist/                # Compiled output (gitignored)
 
 ## Adding New Tools
 
-Use `server.tool()` method with Zod schema:
+Use `server.registerTool()` method:
 
 ```typescript
-server.tool(
+server.registerTool(
   "tool_name",
-  "Tool description",
   {
-    param: z.string().describe("Parameter description"),
+    title: "Tool Title",
+    description: "Tool description",
+    inputSchema: {
+      param: z.string().describe("Parameter description"),
+    },
   },
   async ({ param }) => {
     return {

@@ -61,13 +61,16 @@ const server = new McpServer({
 });
 
 // --- Tool: List Interfaces ---
-server.tool(
+server.registerTool(
   "yapi_list_interfaces",
-  "Lists all interface categories and the interfaces within them for a specific YAPI project.",
   {
-    project_token: z.string().optional().describe(
-      "The token for the YAPI project. Optional if YAPI_PROJECT_TOKEN env is set."
-    ),
+    title: "List YAPI Interfaces",
+    description: "Lists all interface categories and the interfaces within them for a specific YAPI project.",
+    inputSchema: {
+      project_token: z.string().optional().describe(
+        "The token for the YAPI project. Optional if YAPI_PROJECT_TOKEN env is set."
+      ),
+    },
   },
   async ({ project_token }) => {
     try {
@@ -101,14 +104,17 @@ server.tool(
 );
 
 // --- Tool: Get Interface Details ---
-server.tool(
+server.registerTool(
   "yapi_get_interface_details",
-  "Gets detailed information for a specific YAPI interface by its ID.",
   {
-    project_token: z.string().optional().describe(
-      "The token for the YAPI project. Optional if YAPI_PROJECT_TOKEN env is set."
-    ),
-    interface_id: z.number().describe("The ID of the specific YAPI interface."),
+    title: "Get YAPI Interface Details",
+    description: "Gets detailed information for a specific YAPI interface by its ID.",
+    inputSchema: {
+      project_token: z.string().optional().describe(
+        "The token for the YAPI project. Optional if YAPI_PROJECT_TOKEN env is set."
+      ),
+      interface_id: z.number().describe("The ID of the specific YAPI interface."),
+    },
   },
   async ({ project_token, interface_id }) => {
     try {
@@ -140,14 +146,17 @@ server.tool(
 );
 
 // --- Tool: Search Interfaces ---
-server.tool(
+server.registerTool(
   "yapi_search_interfaces",
-  "Searches for interfaces by keyword in their titles or paths.",
   {
-    project_token: z.string().optional().describe(
-      "The token for the YAPI project. Optional if YAPI_PROJECT_TOKEN env is set."
-    ),
-    keyword: z.string().describe("The keyword to search for in interface titles or paths."),
+    title: "Search YAPI Interfaces",
+    description: "Searches for interfaces by keyword in their titles or paths.",
+    inputSchema: {
+      project_token: z.string().optional().describe(
+        "The token for the YAPI project. Optional if YAPI_PROJECT_TOKEN env is set."
+      ),
+      keyword: z.string().describe("The keyword to search for in interface titles or paths."),
+    },
   },
   async ({ project_token, keyword }) => {
     try {
