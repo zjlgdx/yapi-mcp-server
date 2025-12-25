@@ -59,11 +59,24 @@ dist/                # Compiled output (gitignored)
 
 ## Adding New Tools
 
-1. Define Zod schema for input validation
-2. Create Tool definition with `zodToJsonSchema`
-3. Add to tools array in `ListToolsRequestSchema` handler
-4. Implement handler in `CallToolRequestSchema` handler
-5. Rebuild: `npm run build`
+Use `server.tool()` method with Zod schema:
+
+```typescript
+server.tool(
+  "tool_name",
+  "Tool description",
+  {
+    param: z.string().describe("Parameter description"),
+  },
+  async ({ param }) => {
+    return {
+      content: [{ type: "text", text: "result" }],
+    };
+  }
+);
+```
+
+Then rebuild: `npm run build`
 
 ## MCP Configuration
 

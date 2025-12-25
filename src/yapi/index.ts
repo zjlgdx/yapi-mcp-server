@@ -1,50 +1,18 @@
 #!/usr/bin/env node
 // src/yapi/index.ts
 
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-  ToolSchema,
-  Tool,
-} from "@modelcontextprotocol/sdk/types.js";
 import { z } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
 
 // --- Configuration ---
-// Get YAPI base URL from environment variable (required)
 const YAPI_URL = process.env.YAPI_URL;
 if (!YAPI_URL) {
   console.error("Error: YAPI_URL environment variable is required (e.g., http://my-yapi-instance.com)");
   process.exit(1);
 }
 
-// Optional default project token from environment variable
 const DEFAULT_PROJECT_TOKEN = process.env.YAPI_PROJECT_TOKEN;
-
-// --- Type for Tool Input Schema ---
-type ToolInput = Tool["inputSchema"];
-
-const ListInterfacesArgsSchema = z.object({
-  project_token: z.string().optional().describe(
-    "The token for the YAPI project. Optional if YAPI_PROJECT_TOKEN env is set."
-  ),
-});
-
-const GetInterfaceDetailsArgsSchema = z.object({
-  project_token: z.string().optional().describe(
-    "The token for the YAPI project. Optional if YAPI_PROJECT_TOKEN env is set."
-  ),
-  interface_id: z.number().describe("The ID of the specific YAPI interface."),
-});
-
-const SearchInterfacesArgsSchema = z.object({
-  project_token: z.string().optional().describe(
-    "The token for the YAPI project. Optional if YAPI_PROJECT_TOKEN env is set."
-  ),
-  keyword: z.string().describe("The keyword to search for in interface titles or paths."),
-});
 
 // --- Helper function to get token ---
 function getProjectToken(providedToken?: string): string {
@@ -56,25 +24,6 @@ function getProjectToken(providedToken?: string): string {
   }
   return token;
 }
-
-// --- Tool Definitions ---
-const ListInterfacesTool: Tool = {
-  name: "yapi_list_interfaces",
-  description: "Lists all interface categories and the interfaces within them for a specific YAPI project. Returns a structured list of API categories with their interfaces.",
-  inputSchema: zodToJsonSchema(ListInterfacesArgsSchema) as ToolInput,
-};
-
-const GetInterfaceDetailsTool: Tool = {
-  name: "yapi_get_interface_details",
-  description: "Gets detailed information for a specific YAPI interface by its ID. Returns full API specification including request/response parameters, headers, body schemas, etc.",
-  inputSchema: zodToJsonSchema(GetInterfaceDetailsArgsSchema) as ToolInput,
-};
-
-const SearchInterfacesTool: Tool = {
-  name: "yapi_search_interfaces",
-  description: "Searches for interfaces by keyword in their titles or paths. Useful for finding specific APIs without browsing the full list.",
-  inputSchema: zodToJsonSchema(SearchInterfacesArgsSchema) as ToolInput,
-};
 
 // --- YAPI Client Logic ---
 async function yapiRequest<T>(endpoint: string, params: Record<string, string>): Promise<T> {
@@ -98,7 +47,6 @@ async function yapiRequest<T>(endpoint: string, params: Record<string, string>):
 
   const data: any = await response.json();
 
-  // YAPI specific error handling
   if (data.errcode !== 0) {
     throw new Error(`YAPI Error (${data.errcode}): ${data.errmsg}`);
   }
@@ -107,43 +55,24 @@ async function yapiRequest<T>(endpoint: string, params: Record<string, string>):
 }
 
 // --- MCP Server Setup ---
-const server = new Server(
-  {
-    name: "yapi-mcp-server",
-    version: "0.2.0",
-  },
-  {
-    capabilities: {
-      tools: {},
-    },
-  }
-);
-
-// --- Request Handlers ---
-
-// List Tools Handler
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return {
-    tools: [ListInterfacesTool, GetInterfaceDetailsTool, SearchInterfacesTool],
-  };
+const server = new McpServer({
+  name: "yapi-mcp-server",
+  version: "0.2.0",
 });
 
-// Call Tool Handler
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
-
-  if (!args) {
-    throw new Error(`No arguments provided for tool: ${name}`);
-  }
-
-  try {
-    if (name === ListInterfacesTool.name) {
-      const parsedArgs = ListInterfacesArgsSchema.parse(args);
-      const token = getProjectToken(parsedArgs.project_token);
-
-      const result = await yapiRequest<any>('/api/interface/list_menu', {
-        token,
-      });
+// --- Tool: List Interfaces ---
+server.tool(
+  "yapi_list_interfaces",
+  "Lists all interface categories and the interfaces within them for a specific YAPI project.",
+  {
+    project_token: z.string().optional().describe(
+      "The token for the YAPI project. Optional if YAPI_PROJECT_TOKEN env is set."
+    ),
+  },
+  async ({ project_token }) => {
+    try {
+      const token = getProjectToken(project_token);
+      const result = await yapiRequest<any>('/api/interface/list_menu', { token });
 
       const simplifiedResult = result.map((category: any) => ({
         category_name: category.name,
@@ -160,16 +89,36 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return {
         content: [{ type: "text", text: JSON.stringify(simplifiedResult, null, 2) }],
       };
-    } else if (name === GetInterfaceDetailsTool.name) {
-      const parsedArgs = GetInterfaceDetailsArgsSchema.parse(args);
-      const token = getProjectToken(parsedArgs.project_token);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[YAPI Server] Error: ${errorMessage}`);
+      return {
+        content: [{ type: "text", text: `Error: ${errorMessage}` }],
+        isError: true,
+      };
+    }
+  }
+);
 
+// --- Tool: Get Interface Details ---
+server.tool(
+  "yapi_get_interface_details",
+  "Gets detailed information for a specific YAPI interface by its ID.",
+  {
+    project_token: z.string().optional().describe(
+      "The token for the YAPI project. Optional if YAPI_PROJECT_TOKEN env is set."
+    ),
+    interface_id: z.number().describe("The ID of the specific YAPI interface."),
+  },
+  async ({ project_token, interface_id }) => {
+    try {
+      const token = getProjectToken(project_token);
       const result = await yapiRequest<any>('/api/interface/get', {
         token,
-        id: parsedArgs.interface_id.toString(),
+        id: interface_id.toString(),
       });
 
-      // Clean up response for readability
+      // Clean up response
       delete result.__v;
       delete result.edit_uid;
       delete result.add_time;
@@ -179,24 +128,40 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
       };
-    } else if (name === SearchInterfacesTool.name) {
-      const parsedArgs = SearchInterfacesArgsSchema.parse(args);
-      const token = getProjectToken(parsedArgs.project_token);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[YAPI Server] Error: ${errorMessage}`);
+      return {
+        content: [{ type: "text", text: `Error: ${errorMessage}` }],
+        isError: true,
+      };
+    }
+  }
+);
 
-      // First get all interfaces
-      const result = await yapiRequest<any>('/api/interface/list_menu', {
-        token,
-      });
+// --- Tool: Search Interfaces ---
+server.tool(
+  "yapi_search_interfaces",
+  "Searches for interfaces by keyword in their titles or paths.",
+  {
+    project_token: z.string().optional().describe(
+      "The token for the YAPI project. Optional if YAPI_PROJECT_TOKEN env is set."
+    ),
+    keyword: z.string().describe("The keyword to search for in interface titles or paths."),
+  },
+  async ({ project_token, keyword }) => {
+    try {
+      const token = getProjectToken(project_token);
+      const result = await yapiRequest<any>('/api/interface/list_menu', { token });
 
-      // Search through all interfaces
-      const keyword = parsedArgs.keyword.toLowerCase();
+      const searchKeyword = keyword.toLowerCase();
       const matchedInterfaces: any[] = [];
 
       result.forEach((category: any) => {
         category.list.forEach((iface: any) => {
           if (
-            iface.title?.toLowerCase().includes(keyword) ||
-            iface.path?.toLowerCase().includes(keyword)
+            iface.title?.toLowerCase().includes(searchKeyword) ||
+            iface.path?.toLowerCase().includes(searchKeyword)
           ) {
             matchedInterfaces.push({
               id: iface._id,
@@ -215,21 +180,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           type: "text",
           text: matchedInterfaces.length > 0
             ? JSON.stringify(matchedInterfaces, null, 2)
-            : `No interfaces found matching keyword: "${parsedArgs.keyword}"`,
+            : `No interfaces found matching keyword: "${keyword}"`,
         }],
       };
-    } else {
-      throw new Error(`Unknown tool: ${name}`);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[YAPI Server] Error: ${errorMessage}`);
+      return {
+        content: [{ type: "text", text: `Error: ${errorMessage}` }],
+        isError: true,
+      };
     }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`[YAPI Server] Error calling tool ${name}: ${errorMessage}`);
-    return {
-      content: [{ type: "text", text: `Error executing tool ${name}: ${errorMessage}` }],
-      isError: true,
-    };
   }
-});
+);
 
 // --- Server Startup ---
 async function main() {
