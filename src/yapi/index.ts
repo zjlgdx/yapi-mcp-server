@@ -13,6 +13,7 @@ if (!YAPI_URL) {
 }
 
 const DEFAULT_PROJECT_TOKEN = process.env.YAPI_PROJECT_TOKEN;
+const DEFAULT_PROJECT_ID = process.env.YAPI_PROJECT_ID;
 
 // --- Helper function to get token ---
 function getProjectToken(providedToken?: string): string {
@@ -23,6 +24,17 @@ function getProjectToken(providedToken?: string): string {
     );
   }
   return token;
+}
+
+// --- Helper function to get project ID ---
+function getProjectId(providedId?: string): string {
+  const projectId = providedId || DEFAULT_PROJECT_ID;
+  if (!projectId) {
+    throw new Error(
+      "No project ID provided. Either pass project_id in the request or set YAPI_PROJECT_ID environment variable."
+    );
+  }
+  return projectId;
 }
 
 // --- YAPI Client Logic ---
@@ -70,12 +82,16 @@ server.registerTool(
       project_token: z.string().optional().describe(
         "The token for the YAPI project. Optional if YAPI_PROJECT_TOKEN env is set."
       ),
+      project_id: z.string().optional().describe(
+        "The project ID. Optional if YAPI_PROJECT_ID env is set."
+      ),
     },
   },
-  async ({ project_token }) => {
+  async ({ project_token, project_id }) => {
     try {
       const token = getProjectToken(project_token);
-      const result = await yapiRequest<any>('/api/interface/list_menu', { token });
+      const pid = getProjectId(project_id);
+      const result = await yapiRequest<any>('/api/interface/list_menu', { token, project_id: pid });
 
       const simplifiedResult = result.map((category: any) => ({
         category_name: category.name,
@@ -113,14 +129,19 @@ server.registerTool(
       project_token: z.string().optional().describe(
         "The token for the YAPI project. Optional if YAPI_PROJECT_TOKEN env is set."
       ),
+      project_id: z.string().optional().describe(
+        "The project ID. Optional if YAPI_PROJECT_ID env is set."
+      ),
       interface_id: z.number().describe("The ID of the specific YAPI interface."),
     },
   },
-  async ({ project_token, interface_id }) => {
+  async ({ project_token, project_id, interface_id }) => {
     try {
       const token = getProjectToken(project_token);
+      const pid = getProjectId(project_id);
       const result = await yapiRequest<any>('/api/interface/get', {
         token,
+        project_id: pid,
         id: interface_id.toString(),
       });
 
@@ -155,13 +176,17 @@ server.registerTool(
       project_token: z.string().optional().describe(
         "The token for the YAPI project. Optional if YAPI_PROJECT_TOKEN env is set."
       ),
+      project_id: z.string().optional().describe(
+        "The project ID. Optional if YAPI_PROJECT_ID env is set."
+      ),
       keyword: z.string().describe("The keyword to search for in interface titles or paths."),
     },
   },
-  async ({ project_token, keyword }) => {
+  async ({ project_token, project_id, keyword }) => {
     try {
       const token = getProjectToken(project_token);
-      const result = await yapiRequest<any>('/api/interface/list_menu', { token });
+      const pid = getProjectId(project_id);
+      const result = await yapiRequest<any>('/api/interface/list_menu', { token, project_id: pid });
 
       const searchKeyword = keyword.toLowerCase();
       const matchedInterfaces: any[] = [];
@@ -211,6 +236,9 @@ async function main() {
   console.error(`Connected to YAPI instance at: ${YAPI_URL}`);
   if (DEFAULT_PROJECT_TOKEN) {
     console.error(`Default project token configured: ${DEFAULT_PROJECT_TOKEN.substring(0, 8)}...`);
+  }
+  if (DEFAULT_PROJECT_ID) {
+    console.error(`Default project ID configured: ${DEFAULT_PROJECT_ID}`);
   }
 }
 
