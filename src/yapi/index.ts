@@ -11,40 +11,69 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
-import fetch from 'node-fetch';
 
 // --- Configuration ---
-// Get YAPI base URL from environment variable or use a default
+// Get YAPI base URL from environment variable (required)
 const YAPI_URL = process.env.YAPI_URL;
 if (!YAPI_URL) {
   console.error("Error: YAPI_URL environment variable is required (e.g., http://my-yapi-instance.com)");
   process.exit(1);
 }
 
-// --- Zod Schemas for Tool Inputs ---
-const ToolInputSchema = ToolSchema.shape.inputSchema;
-type ToolInput = z.infer<typeof ToolInputSchema>;
+// Optional default project token from environment variable
+const DEFAULT_PROJECT_TOKEN = process.env.YAPI_PROJECT_TOKEN;
+
+// --- Type for Tool Input Schema ---
+type ToolInput = Tool["inputSchema"];
 
 const ListInterfacesArgsSchema = z.object({
-  project_token: z.string().describe("The token for the YAPI project."),
+  project_token: z.string().optional().describe(
+    "The token for the YAPI project. Optional if YAPI_PROJECT_TOKEN env is set."
+  ),
 });
 
 const GetInterfaceDetailsArgsSchema = z.object({
-  project_token: z.string().describe("The token for the YAPI project."),
+  project_token: z.string().optional().describe(
+    "The token for the YAPI project. Optional if YAPI_PROJECT_TOKEN env is set."
+  ),
   interface_id: z.number().describe("The ID of the specific YAPI interface."),
 });
+
+const SearchInterfacesArgsSchema = z.object({
+  project_token: z.string().optional().describe(
+    "The token for the YAPI project. Optional if YAPI_PROJECT_TOKEN env is set."
+  ),
+  keyword: z.string().describe("The keyword to search for in interface titles or paths."),
+});
+
+// --- Helper function to get token ---
+function getProjectToken(providedToken?: string): string {
+  const token = providedToken || DEFAULT_PROJECT_TOKEN;
+  if (!token) {
+    throw new Error(
+      "No project token provided. Either pass project_token in the request or set YAPI_PROJECT_TOKEN environment variable."
+    );
+  }
+  return token;
+}
 
 // --- Tool Definitions ---
 const ListInterfacesTool: Tool = {
   name: "yapi_list_interfaces",
-  description: "Lists all interface categories and the interfaces within them for a specific YAPI project.",
+  description: "Lists all interface categories and the interfaces within them for a specific YAPI project. Returns a structured list of API categories with their interfaces.",
   inputSchema: zodToJsonSchema(ListInterfacesArgsSchema) as ToolInput,
 };
 
 const GetInterfaceDetailsTool: Tool = {
   name: "yapi_get_interface_details",
-  description: "Gets detailed information for a specific YAPI interface by its ID.",
+  description: "Gets detailed information for a specific YAPI interface by its ID. Returns full API specification including request/response parameters, headers, body schemas, etc.",
   inputSchema: zodToJsonSchema(GetInterfaceDetailsArgsSchema) as ToolInput,
+};
+
+const SearchInterfacesTool: Tool = {
+  name: "yapi_search_interfaces",
+  description: "Searches for interfaces by keyword in their titles or paths. Useful for finding specific APIs without browsing the full list.",
+  inputSchema: zodToJsonSchema(SearchInterfacesArgsSchema) as ToolInput,
 };
 
 // --- YAPI Client Logic ---
@@ -54,10 +83,10 @@ async function yapiRequest<T>(endpoint: string, params: Record<string, string>):
     url.searchParams.append(key, value);
   });
 
-  console.error(`[YAPI Server] Fetching: ${url.toString()}`); // Log the request URL
+  console.error(`[YAPI Server] Fetching: ${url.toString()}`);
 
   const response = await fetch(url.toString(), {
-    method: 'GET', // YAPI open API seems to use GET primarily
+    method: 'GET',
     headers: {
       'Accept': 'application/json',
     }
@@ -81,11 +110,11 @@ async function yapiRequest<T>(endpoint: string, params: Record<string, string>):
 const server = new Server(
   {
     name: "yapi-mcp-server",
-    version: "0.1.0",
+    version: "0.2.0",
   },
   {
     capabilities: {
-      tools: {}, // Enable the tools capability
+      tools: {},
     },
   }
 );
@@ -95,7 +124,7 @@ const server = new Server(
 // List Tools Handler
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
-    tools: [ListInterfacesTool, GetInterfaceDetailsTool],
+    tools: [ListInterfacesTool, GetInterfaceDetailsTool, SearchInterfacesTool],
   };
 });
 
@@ -110,10 +139,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     if (name === ListInterfacesTool.name) {
       const parsedArgs = ListInterfacesArgsSchema.parse(args);
+      const token = getProjectToken(parsedArgs.project_token);
+
       const result = await yapiRequest<any>('/api/interface/list_menu', {
-        token: parsedArgs.project_token,
+        token,
       });
-      // Optionally simplify the response for the LLM
+
       const simplifiedResult = result.map((category: any) => ({
         category_name: category.name,
         category_desc: category.desc,
@@ -125,23 +156,67 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           status: iface.status,
         })),
       }));
+
       return {
         content: [{ type: "text", text: JSON.stringify(simplifiedResult, null, 2) }],
       };
     } else if (name === GetInterfaceDetailsTool.name) {
       const parsedArgs = GetInterfaceDetailsArgsSchema.parse(args);
+      const token = getProjectToken(parsedArgs.project_token);
+
       const result = await yapiRequest<any>('/api/interface/get', {
-        token: parsedArgs.project_token,
+        token,
         id: parsedArgs.interface_id.toString(),
       });
-       // Optionally clean up or simplify the large response
-       delete result.__v; // remove mongoose version key
-       delete result.edit_uid;
-       delete result.add_time;
-       delete result.up_time;
-       // Add more simplification if needed
+
+      // Clean up response for readability
+      delete result.__v;
+      delete result.edit_uid;
+      delete result.add_time;
+      delete result.up_time;
+      delete result.uid;
+
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      };
+    } else if (name === SearchInterfacesTool.name) {
+      const parsedArgs = SearchInterfacesArgsSchema.parse(args);
+      const token = getProjectToken(parsedArgs.project_token);
+
+      // First get all interfaces
+      const result = await yapiRequest<any>('/api/interface/list_menu', {
+        token,
+      });
+
+      // Search through all interfaces
+      const keyword = parsedArgs.keyword.toLowerCase();
+      const matchedInterfaces: any[] = [];
+
+      result.forEach((category: any) => {
+        category.list.forEach((iface: any) => {
+          if (
+            iface.title?.toLowerCase().includes(keyword) ||
+            iface.path?.toLowerCase().includes(keyword)
+          ) {
+            matchedInterfaces.push({
+              id: iface._id,
+              title: iface.title,
+              path: iface.path,
+              method: iface.method,
+              status: iface.status,
+              category: category.name,
+            });
+          }
+        });
+      });
+
+      return {
+        content: [{
+          type: "text",
+          text: matchedInterfaces.length > 0
+            ? JSON.stringify(matchedInterfaces, null, 2)
+            : `No interfaces found matching keyword: "${parsedArgs.keyword}"`,
+        }],
       };
     } else {
       throw new Error(`Unknown tool: ${name}`);
@@ -160,7 +235,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error(`YAPI MCP Server running on stdio, connected to YAPI instance at ${YAPI_URL}`);
+  console.error(`YAPI MCP Server v0.2.0 running on stdio`);
+  console.error(`Connected to YAPI instance at: ${YAPI_URL}`);
+  if (DEFAULT_PROJECT_TOKEN) {
+    console.error(`Default project token configured: ${DEFAULT_PROJECT_TOKEN.substring(0, 8)}...`);
+  }
 }
 
 main().catch((error) => {
