@@ -7,6 +7,7 @@ This release uses the MCP `2026-07-28` protocol over stdio. Legacy MCP initializ
 ## Features
 
 - **List Interfaces**: Get all interface categories and basic interface info within a project
+- **List Category Interfaces**: Page through interfaces for a category ID from a YAPI `/cat_<id>` URL
 - **Get Interface Details**: Retrieve detailed information for a specific interface by its ID
 - **Search Interfaces**: Search for interfaces by keyword in titles or paths
 
@@ -19,7 +20,17 @@ Lists all interface categories and the interfaces within them for a specific YAP
 - `project_id` (optional): Numeric project ID. Not required if `YAPI_PROJECT_ID` is set.
 - `limit` (optional, default `100`): Maximum interfaces to return; allowed range is `1` to `500`.
 
-**Returns**: JSON array of categories with simplified interface objects (id, title, path, method, status).
+**Returns**: JSON array of categories, including `category_id`, with simplified interface objects (id, title, path, method, status).
+
+### `yapi_list_category_interfaces`
+Lists one page of interfaces for a category ID without loading every interface in the project.
+
+**Input**:
+- `category_id` (positive integer, required): The numeric ID from a YAPI `/cat_<id>` URL.
+- `page` (optional, default `1`): One-based page number.
+- `limit` (optional, default `100`): Page size; allowed range is `1` to `500`.
+
+**Returns**: Interface summaries plus `returned`, `total`, and `total_pages` pagination metadata.
 
 ### `yapi_get_interface_details`
 Gets detailed information for a specific YAPI interface by its ID.
@@ -151,14 +162,14 @@ Add to your Cursor MCP settings:
 
 ### Using npx (Recommended for distribution)
 
-Use the actual published package name. Version `0.2.0` requires an MCP `2026-07-28` client:
+Use the actual published package name. Version `0.3.0` requires an MCP `2026-07-28` client:
 
 ```json
 {
   "mcpServers": {
     "yapi": {
       "command": "npx",
-      "args": ["-y", "mcp-server-yapi@0.2.0"],
+      "args": ["-y", "mcp-server-yapi@0.3.0"],
       "env": {
         "YAPI_URL": "<your-yapi-url>",
         "YAPI_PROJECT_TOKEN": "<your-project-token>"
@@ -173,6 +184,7 @@ Use the actual published package name. Version `0.2.0` requires an MCP `2026-07-
 Once configured, you can ask Claude to:
 
 - "List all APIs in my YAPI project"
+- "List interfaces from YAPI category URL .../cat_114557"
 - "Get details for interface ID 12345"
 - "Search for APIs related to 'user' in my project"
 - "Show me all POST endpoints"

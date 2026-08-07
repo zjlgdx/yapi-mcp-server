@@ -4,7 +4,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import * as z from "zod/v4";
 
-const SERVER_VERSION = "0.2.0";
+const SERVER_VERSION = "0.3.0";
 const DEFAULT_RESULT_LIMIT = 100;
 const MAX_RESULT_LIMIT = 500;
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
@@ -155,6 +155,7 @@ const readOnlyAnnotations = {
 };
 
 type YapiCategory = {
+  _id?: number;
   name?: string;
   desc?: string;
   list?: YapiInterfaceSummary[];
@@ -168,6 +169,22 @@ type YapiInterfaceSummary = {
   status?: string;
 };
 
+type YapiCategoryPage = {
+  count: number;
+  total: number;
+  list: YapiInterfaceSummary[];
+};
+
+function simplifyInterface(iface: YapiInterfaceSummary) {
+  return {
+    id: iface._id,
+    title: iface.title,
+    path: iface.path,
+    method: iface.method,
+    status: iface.status,
+  };
+}
+
 function toolError(error: unknown) {
   const errorMessage = safeErrorMessage(error);
   console.error(`[YAPI Server] Error: ${errorMessage}`);
@@ -178,10 +195,17 @@ function toolError(error: unknown) {
 }
 
 function createServer(): McpServer {
-  const server = new McpServer({
-    name: "yapi-mcp-server",
-    version: SERVER_VERSION,
-  });
+  const server = new McpServer(
+    {
+      name: "yapi-mcp-server",
+      version: SERVER_VERSION,
+    },
+    {
+      instructions:
+        "Use yapi_list_category_interfaces when a YAPI URL contains /cat_<category_id>. " +
+        "Use yapi_get_interface_details when an interface ID is known. All tools are read-only.",
+    }
+  );
 
   server.registerTool(
     "yapi_list_interfaces",
@@ -203,15 +227,10 @@ function createServer(): McpServer {
 
         let remaining = limit;
         const categories = result.map((category) => {
-          const interfaces = (category.list || []).slice(0, remaining).map((iface) => ({
-            id: iface._id,
-            title: iface.title,
-            path: iface.path,
-            method: iface.method,
-            status: iface.status,
-          }));
+          const interfaces = (category.list || []).slice(0, remaining).map(simplifyInterface);
           remaining -= interfaces.length;
           return {
+            category_id: category._id,
             category_name: category.name,
             category_desc: category.desc,
             interfaces,
@@ -227,6 +246,47 @@ function createServer(): McpServer {
             total,
             truncated: total > limit,
           },
+        };
+      } catch (error) {
+        return toolError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "yapi_list_category_interfaces",
+    {
+      title: "List YAPI Category Interfaces",
+      description: "Lists one page of interfaces in a YAPI category by category ID.",
+      inputSchema: z.object({
+        category_id: z.number().int().positive().describe("The positive integer ID from a YAPI /cat_<id> URL."),
+        page: z.number().int().min(1).default(1).describe("One-based page number."),
+        limit: resultLimitSchema,
+      }),
+      annotations: readOnlyAnnotations,
+    },
+    async ({ category_id, page, limit }) => {
+      try {
+        const result = await yapiRequest<YapiCategoryPage>("api/interface/list_cat", {
+          token: getProjectToken(),
+          catid: category_id.toString(),
+          page: page.toString(),
+          limit: limit.toString(),
+        });
+        const interfaces = (result.list || []).map(simplifyInterface);
+        const categoryPage = {
+          category_id,
+          page,
+          limit,
+          returned: interfaces.length,
+          total: result.count,
+          total_pages: result.total,
+          interfaces,
+        };
+
+        return {
+          content: [{ type: "text", text: JSON.stringify(categoryPage, null, 2) }],
+          structuredContent: categoryPage,
         };
       } catch (error) {
         return toolError(error);
