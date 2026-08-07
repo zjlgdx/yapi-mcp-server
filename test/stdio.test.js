@@ -9,7 +9,7 @@ const PROJECT_TOKEN = "top-secret-project-token";
 const PROJECT_ID = "42";
 const REQUEST_TIMEOUT_MS = 1_000;
 const TIMEOUT_RESPONSE_DELAY_MS = 1_500;
-const BATCH_RESPONSE_DELAY_MS = 50;
+const BATCH_RESPONSE_DELAY_MS = 250;
 const requestPaths = [];
 let mockServer;
 let baseUrl;
@@ -263,6 +263,7 @@ test("MCP 2026-07-28 stdio lists and calls all read-only YAPI tools without leak
     );
     assert.equal(batchResult.structuredContent.results[0].success, true);
     assert.equal(batchResult.structuredContent.results[0].interface._id, 201);
+    assert.equal(Object.hasOwn(batchResult.structuredContent.results[0].interface, "uid"), false);
     assert.equal(batchResult.structuredContent.results[1].success, false);
     assert.doesNotMatch(batchResult.structuredContent.results[1].error, new RegExp(PROJECT_TOKEN));
     assert.doesNotMatch(JSON.stringify(batchResult), new RegExp(PROJECT_TOKEN));
