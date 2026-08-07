@@ -52,7 +52,7 @@ Gets detailed information for a specific YAPI interface by its ID.
 - `project_id` (optional): Numeric project ID. Not required if `YAPI_PROJECT_ID` is set.
 - `interface_id` (number, required): The ID of the specific YAPI interface.
 
-**Returns**: JSON object with full interface specification (request/response parameters, headers, body schemas, etc.).
+**Returns**: A structured object whose `interface` field contains the full interface specification (request/response parameters, headers, body schemas, etc.).
 
 ### `yapi_search_interfaces`
 Searches for interfaces by keyword in their titles or paths using bounded server-paginated scanning.

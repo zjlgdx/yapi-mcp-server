@@ -165,11 +165,21 @@ test("MCP 2026-07-28 stdio lists and calls all read-only YAPI tools without leak
       "yapi_list_project_interfaces",
       "yapi_search_interfaces",
     ]);
+    const expectedOutputFields = {
+      yapi_get_interface_details: "interface",
+      yapi_list_category_interfaces: "category_id",
+      yapi_list_interfaces: "categories",
+      yapi_list_project_interfaces: "project_id",
+      yapi_search_interfaces: "pages_scanned",
+    };
     for (const tool of tools) {
       assert.equal(tool.annotations?.readOnlyHint, true);
       assert.equal(tool.annotations?.destructiveHint, false);
       assert.equal(Object.hasOwn(tool.inputSchema.properties || {}, "project_token"), false);
       assert.equal(tool.outputSchema?.type, "object", `${tool.name} must advertise an object output schema`);
+      const expectedField = expectedOutputFields[tool.name];
+      assert.equal(Object.hasOwn(tool.outputSchema?.properties || {}, expectedField), true);
+      assert.equal(tool.outputSchema?.required?.includes(expectedField), true);
     }
 
     const listResult = await client.callTool({
