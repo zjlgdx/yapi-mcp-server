@@ -7,6 +7,8 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
 const PROJECT_TOKEN = "top-secret-project-token";
 const PROJECT_ID = "42";
+const REQUEST_TIMEOUT_MS = 1_000;
+const TIMEOUT_RESPONSE_DELAY_MS = 1_500;
 const requestPaths = [];
 let mockServer;
 let baseUrl;
@@ -62,7 +64,10 @@ before(async () => {
         return;
       }
       if (id === "888") {
-        setTimeout(() => response.end(JSON.stringify({ errcode: 0, data: { _id: 888 } })), 250);
+        setTimeout(
+          () => response.end(JSON.stringify({ errcode: 0, data: { _id: 888 } })),
+          TIMEOUT_RESPONSE_DELAY_MS
+        );
         return;
       }
       response.end(JSON.stringify({
@@ -97,7 +102,7 @@ function serverTransport() {
       YAPI_URL: baseUrl,
       YAPI_PROJECT_TOKEN: PROJECT_TOKEN,
       YAPI_PROJECT_ID: PROJECT_ID,
-      YAPI_REQUEST_TIMEOUT_MS: "100",
+      YAPI_REQUEST_TIMEOUT_MS: REQUEST_TIMEOUT_MS.toString(),
     },
     stderr: "pipe",
   });
@@ -184,7 +189,7 @@ test("MCP 2026-07-28 stdio lists and calls all read-only YAPI tools without leak
       arguments: { interface_id: 888 },
     });
     assert.equal(timeoutResult.isError, true);
-    assert.match(JSON.stringify(timeoutResult), /timed out after 100ms/);
+    assert.match(JSON.stringify(timeoutResult), new RegExp(`timed out after ${REQUEST_TIMEOUT_MS}ms`));
 
     const invalidIdResult = await client.callTool({
       name: "yapi_get_interface_details",
