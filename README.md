@@ -55,7 +55,7 @@ Searches for interfaces by keyword in their titles or paths.
 
 1. A running YAPI instance
 2. Access to the project token(s) for the YAPI projects you want to interact with (found in YAPI project "Settings" -> "Tokens")
-3. Node.js 20+ installed
+3. Node.js 22+ installed
 
 ## Environment Variables
 
@@ -192,7 +192,7 @@ Once configured, you can ask Claude to:
 ## Troubleshooting
 
 ### Server not starting
-- Ensure Node.js 20+ is installed
+- Ensure Node.js 22+ is installed
 - Verify the path to `dist/index.js` is correct
 - Check that `YAPI_URL` is set and accessible
 
@@ -224,6 +224,21 @@ YAPI_URL=http://yapi.example.com YAPI_PROJECT_TOKEN=xxx npm start
 ```
 
 The server is read-only: all exposed tools use YAPI `GET` endpoints and are advertised with MCP read-only annotations. Diagnostic output is written only to stderr; stdout is reserved for MCP messages.
+
+## Publishing
+
+Publishing is performed only by `.github/workflows/publish.yml` after a stable GitHub Release is published. The release tag must be `v<package.json version>`, point to a commit on `main`, and pass the same build, test, audit, and package-content gates used by CI. The workflow uses npm Trusted Publishing through GitHub OIDC; do not add an `NPM_TOKEN` secret or publish manually as a fallback.
+
+One-time npm configuration must be completed by an existing `mcp-server-yapi` maintainer before the first automated release:
+
+- Publisher: GitHub Actions
+- Organization or user: `zjlgdx`
+- Repository: `yapi-mcp-server`
+- Workflow filename: `publish.yml`
+- Environment: `npm`
+- Allowed action: `npm publish`
+
+The GitHub `npm` environment must allow only tags matching `v*`. Enable required reviewers when a reviewer distinct from the releaser is available. Trusted Publishing requires a public GitHub-hosted runner and automatically generates npm provenance for this public package.
 
 ## License
 

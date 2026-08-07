@@ -1,0 +1,103 @@
+name: Publish npm package
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-publish-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up release Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.19.0
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Install release npm CLI
+        run: npm install --global npm@12.0.2
+
+      - name: Verify release identity
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_IS_PRERELEASE: ${{ github.event.release.prerelease }}
+          EXPECTED_REPOSITORY: zjlgdx/yapi-mcp-server
+          EXPECTED_REPOSITORY_URL: git+https://github.com/zjlgdx/yapi-mcp-server.git
+        run: |
+          set -euo pipefail
+
+          package_name="$(node --print "require('./package.json').name")"
+          package_version="$(node --print "require('./package.json').version")"
+          repository_url="$(node --print "require('./package.json').repository.url")"
+
+          test "$GITHUB_REPOSITORY" = "$EXPECTED_REPOSITORY"
+          test "$package_name" = "mcp-server-yapi"
+          test "$repository_url" = "$EXPECTED_REPOSITORY_URL"
+          test "$RELEASE_IS_PRERELEASE" = "false"
+          test "$RELEASE_TAG" = "v$package_version"
+          test "$(git rev-list -n 1 "$RELEASE_TAG")" = "$(git rev-parse HEAD)"
+
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor HEAD origin/main
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Audit dependencies
+        run: npm audit
+
+      - name: Verify package contents
+        run: |
+          npm pack --dry-run --json > "$RUNNER_TEMP/npm-pack.json"
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+
+          const [manifest] = JSON.parse(
+            readFileSync(`${process.env.RUNNER_TEMP}/npm-pack.json`, "utf8")
+          );
+          const files = new Set(manifest.files.map(({ path }) => path));
+          const required = ["package.json", "README.md", "dist/index.js"];
+          const missing = required.filter((path) => !files.has(path));
+          const forbidden = [...files].filter((path) =>
+            path === ".npmrc" ||
+            path.startsWith(".github/") ||
+            path.startsWith("src/") ||
+            path.startsWith("test/")
+          );
+
+          if (missing.length > 0 || forbidden.length > 0) {
+            throw new Error(JSON.stringify({ missing, forbidden }));
+          }
+          NODE
+
+      - name: Publish with npm Trusted Publishing
+        run: npm publish
