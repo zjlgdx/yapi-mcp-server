@@ -67,7 +67,10 @@ before(async () => {
             { _id: 104, catid: 77, title: "List user roles", path: "/users/roles", method: "GET", status: "done" },
           ],
           2: [categories[1].list[0]],
-          3: [categories[0].list[1]],
+          3: [
+            categories[0].list[1],
+            { _id: 105, catid: 77, title: "Create team", path: "/teams", method: "POST", status: "done" },
+          ],
         };
         response.end(JSON.stringify({
           errcode: 0,
@@ -242,11 +245,28 @@ test("MCP 2026-07-28 stdio lists and calls all read-only YAPI tools without leak
     assert.equal(exhaustedSearchResult.isError, undefined);
     assert.equal(exhaustedSearchResult.structuredContent.returned, 0);
     assert.equal(exhaustedSearchResult.structuredContent.pages_scanned, 3);
-    assert.equal(exhaustedSearchResult.structuredContent.interfaces_scanned, 4);
+    assert.equal(exhaustedSearchResult.structuredContent.interfaces_scanned, 5);
     assert.equal(exhaustedSearchResult.structuredContent.truncated, false);
     assert.equal(exhaustedSearchResult.structuredContent.truncated_reason, null);
     assert.deepEqual(
       requestPaths.slice(exhaustionRequestOffset).map((path) => new URL(path, "http://mock").searchParams.get("page")),
+      ["1", "2", "3"],
+    );
+
+    const finalPageOverflowOffset = requestPaths.length;
+    const finalPageOverflowResult = await client.callTool({
+      name: "yapi_search_interfaces",
+      arguments: { keyword: "create", limit: 1, max_scan_pages: 5 },
+    });
+    assert.equal(finalPageOverflowResult.isError, undefined);
+    assert.equal(finalPageOverflowResult.structuredContent.returned, 1);
+    assert.equal(finalPageOverflowResult.structuredContent.total, 2);
+    assert.equal(finalPageOverflowResult.structuredContent.pages_scanned, 3);
+    assert.equal(finalPageOverflowResult.structuredContent.project_total_pages, 3);
+    assert.equal(finalPageOverflowResult.structuredContent.truncated, true);
+    assert.equal(finalPageOverflowResult.structuredContent.truncated_reason, "match_limit");
+    assert.deepEqual(
+      requestPaths.slice(finalPageOverflowOffset).map((path) => new URL(path, "http://mock").searchParams.get("page")),
       ["1", "2", "3"],
     );
 
