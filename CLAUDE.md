@@ -43,6 +43,7 @@ dist/                # Compiled output (gitignored)
 | `yapi_list_project_interfaces` | Page through a flat project interface list |
 | `yapi_list_category_interfaces` | Page through interfaces by category ID |
 | `yapi_get_interface_details` | Get detailed info for a specific interface by ID |
+| `yapi_get_interface_details_batch` | Get up to 10 interface details with concurrency limited to 3 |
 | `yapi_search_interfaces` | Search interfaces by keyword |
 
 ## Environment Variables

@@ -4,9 +4,11 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import * as z from "zod/v4";
 
-const SERVER_VERSION = "0.6.0";
+const SERVER_VERSION = "0.7.0";
 const DEFAULT_RESULT_LIMIT = 100;
 const MAX_RESULT_LIMIT = 500;
+const MAX_DETAIL_BATCH_SIZE = 10;
+const DETAIL_BATCH_CONCURRENCY = 3;
 const SEARCH_PAGE_SIZE = 100;
 const DEFAULT_MAX_SCAN_PAGES = 10;
 const MAX_SCAN_PAGES = 100;
@@ -153,6 +155,11 @@ const resultLimitSchema = z.number().int().min(1).max(MAX_RESULT_LIMIT).default(
 const maxScanPagesSchema = z.number().int().min(1).max(MAX_SCAN_PAGES).default(DEFAULT_MAX_SCAN_PAGES).describe(
   `Maximum number of YAPI pages to scan (1-${MAX_SCAN_PAGES}).`
 );
+const interfaceIdsSchema = z.array(z.number().int().positive())
+  .min(1)
+  .max(MAX_DETAIL_BATCH_SIZE)
+  .refine((ids) => new Set(ids).size === ids.length, "interface_ids must contain unique values")
+  .describe(`Unique positive interface IDs (maximum ${MAX_DETAIL_BATCH_SIZE}).`);
 const readOnlyAnnotations = {
   readOnlyHint: true,
   destructiveHint: false,
@@ -216,8 +223,27 @@ const projectInterfacesOutputSchema = paginatedInterfacesOutputSchema.extend({
 const categoryInterfacesOutputSchema = paginatedInterfacesOutputSchema.extend({
   category_id: z.number().int().positive(),
 });
+const interfaceDetailsSchema = z.record(z.string(), z.unknown());
 const interfaceDetailsOutputSchema = z.object({
-  interface: z.record(z.string(), z.unknown()),
+  interface: interfaceDetailsSchema,
+});
+const batchInterfaceResultOutputSchema = z.discriminatedUnion("success", [
+  z.object({
+    interface_id: z.number().int().positive(),
+    success: z.literal(true),
+    interface: interfaceDetailsSchema,
+  }),
+  z.object({
+    interface_id: z.number().int().positive(),
+    success: z.literal(false),
+    error: z.string(),
+  }),
+]);
+const batchInterfaceDetailsOutputSchema = z.object({
+  results: z.array(batchInterfaceResultOutputSchema).min(1).max(MAX_DETAIL_BATCH_SIZE),
+  requested: z.number().int().min(1).max(MAX_DETAIL_BATCH_SIZE),
+  succeeded: z.number().int().nonnegative().max(MAX_DETAIL_BATCH_SIZE),
+  failed: z.number().int().nonnegative().max(MAX_DETAIL_BATCH_SIZE),
 });
 const searchInterfacesOutputSchema = z.object({
   interfaces: z.array(interfaceSummaryOutputSchema),
@@ -249,6 +275,39 @@ function toolSuccess<T extends Record<string, unknown>>(output: T) {
   };
 }
 
+async function fetchInterfaceDetails(projectId: string, interfaceId: number, token: string) {
+  const result = await yapiRequest<Record<string, unknown>>("api/interface/get", {
+    token,
+    project_id: projectId,
+    id: interfaceId.toString(),
+  });
+
+  for (const field of ["__v", "edit_uid", "add_time", "up_time", "uid"]) {
+    delete result[field];
+  }
+  return result;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index]);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()));
+  return results;
+}
+
 function toolError(error: unknown) {
   const errorMessage = safeErrorMessage(error);
   console.error(`[YAPI Server] Error: ${errorMessage}`);
@@ -268,7 +327,57 @@ function createServer(): McpServer {
       instructions:
         "Use yapi_list_category_interfaces when a YAPI URL contains /cat_<category_id>. " +
         "Use yapi_list_project_interfaces for a bounded flat page of project interfaces. " +
-        "Use yapi_get_interface_details when an interface ID is known. All tools are read-only.",
+        "Use yapi_get_interface_details when one interface ID is known, or yapi_get_interface_details_batch " +
+        `for up to ${MAX_DETAIL_BATCH_SIZE} known IDs. All tools are read-only.`,
+    }
+  );
+
+  server.registerTool(
+    "yapi_get_interface_details_batch",
+    {
+      title: "Get YAPI Interface Details Batch",
+      description: `Gets details for up to ${MAX_DETAIL_BATCH_SIZE} interface IDs with bounded concurrency and per-ID errors.`,
+      inputSchema: z.object({
+        project_id: projectIdSchema,
+        interface_ids: interfaceIdsSchema,
+      }),
+      outputSchema: batchInterfaceDetailsOutputSchema,
+      annotations: readOnlyAnnotations,
+    },
+    async ({ project_id, interface_ids }) => {
+      try {
+        const resolvedProjectId = getProjectId(project_id);
+        const token = getProjectToken();
+        const results = await mapWithConcurrency(
+          interface_ids,
+          DETAIL_BATCH_CONCURRENCY,
+          async (interfaceId): Promise<z.infer<typeof batchInterfaceResultOutputSchema>> => {
+            try {
+              return {
+                interface_id: interfaceId,
+                success: true,
+                interface: await fetchInterfaceDetails(resolvedProjectId, interfaceId, token),
+              };
+            } catch (error) {
+              return {
+                interface_id: interfaceId,
+                success: false,
+                error: safeErrorMessage(error),
+              };
+            }
+          },
+        );
+        const succeeded = results.filter((result) => result.success).length;
+
+        return toolSuccess({
+          results,
+          requested: interface_ids.length,
+          succeeded,
+          failed: interface_ids.length - succeeded,
+        });
+      } catch (error) {
+        return toolError(error);
+      }
     }
   );
 
@@ -409,16 +518,7 @@ function createServer(): McpServer {
     },
     async ({ project_id, interface_id }) => {
       try {
-        const result = await yapiRequest<Record<string, unknown>>("api/interface/get", {
-          token: getProjectToken(),
-          project_id: getProjectId(project_id),
-          id: interface_id.toString(),
-        });
-
-        for (const field of ["__v", "edit_uid", "add_time", "up_time", "uid"]) {
-          delete result[field];
-        }
-
+        const result = await fetchInterfaceDetails(getProjectId(project_id), interface_id, getProjectToken());
         return toolSuccess({ interface: result });
       } catch (error) {
         return toolError(error);
