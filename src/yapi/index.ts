@@ -4,7 +4,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import * as z from "zod/v4";
 
-const SERVER_VERSION = "0.3.0";
+const SERVER_VERSION = "0.4.0";
 const DEFAULT_RESULT_LIMIT = 100;
 const MAX_RESULT_LIMIT = 500;
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
@@ -169,7 +169,7 @@ type YapiInterfaceSummary = {
   status?: string;
 };
 
-type YapiCategoryPage = {
+type YapiInterfacePage = {
   count: number;
   total: number;
   list: YapiInterfaceSummary[];
@@ -203,7 +203,50 @@ function createServer(): McpServer {
     {
       instructions:
         "Use yapi_list_category_interfaces when a YAPI URL contains /cat_<category_id>. " +
+        "Use yapi_list_project_interfaces for a bounded flat page of project interfaces. " +
         "Use yapi_get_interface_details when an interface ID is known. All tools are read-only.",
+    }
+  );
+
+  server.registerTool(
+    "yapi_list_project_interfaces",
+    {
+      title: "List YAPI Project Interfaces",
+      description: "Lists one server-paginated page of interfaces for a YAPI project.",
+      inputSchema: z.object({
+        project_id: projectIdSchema,
+        page: z.number().int().min(1).default(1).describe("One-based page number."),
+        limit: resultLimitSchema,
+      }),
+      annotations: readOnlyAnnotations,
+    },
+    async ({ project_id, page, limit }) => {
+      try {
+        const resolvedProjectId = getProjectId(project_id);
+        const result = await yapiRequest<YapiInterfacePage>("api/interface/list", {
+          token: getProjectToken(),
+          project_id: resolvedProjectId,
+          page: page.toString(),
+          limit: limit.toString(),
+        });
+        const interfaces = (result.list || []).map(simplifyInterface);
+        const projectPage = {
+          project_id: resolvedProjectId,
+          page,
+          limit,
+          returned: interfaces.length,
+          total: result.count,
+          total_pages: result.total,
+          interfaces,
+        };
+
+        return {
+          content: [{ type: "text", text: JSON.stringify(projectPage, null, 2) }],
+          structuredContent: projectPage,
+        };
+      } catch (error) {
+        return toolError(error);
+      }
     }
   );
 
@@ -267,7 +310,7 @@ function createServer(): McpServer {
     },
     async ({ category_id, page, limit }) => {
       try {
-        const result = await yapiRequest<YapiCategoryPage>("api/interface/list_cat", {
+        const result = await yapiRequest<YapiInterfacePage>("api/interface/list_cat", {
           token: getProjectToken(),
           catid: category_id.toString(),
           page: page.toString(),

@@ -40,6 +40,7 @@ dist/                # Compiled output (gitignored)
 | Tool | Description |
 |------|-------------|
 | `yapi_list_interfaces` | List all API categories and interfaces |
+| `yapi_list_project_interfaces` | Page through a flat project interface list |
 | `yapi_list_category_interfaces` | Page through interfaces by category ID |
 | `yapi_get_interface_details` | Get detailed info for a specific interface by ID |
 | `yapi_search_interfaces` | Search interfaces by keyword |
