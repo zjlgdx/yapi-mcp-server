@@ -42,7 +42,16 @@ before(async () => {
     assert.equal(url.searchParams.get("token"), PROJECT_TOKEN);
     response.setHeader("Content-Type", "application/json");
     if (url.pathname === "/base/api/interface/list_menu") {
-      assert.equal(url.searchParams.get("project_id"), PROJECT_ID);
+      const projectId = url.searchParams.get("project_id");
+      if (projectId === "44") {
+        response.end(JSON.stringify({
+          errcode: 0,
+          errmsg: "success",
+          data: { leaked: PROJECT_TOKEN },
+        }));
+        return;
+      }
+      assert.equal(projectId, PROJECT_ID);
       response.end(JSON.stringify({ errcode: 0, errmsg: "success", data: categories }));
       return;
     }
@@ -294,6 +303,15 @@ test("MCP 2026-07-28 stdio lists and calls all read-only YAPI tools without leak
     assert.doesNotMatch(JSON.stringify(missingPaginationResult), new RegExp(PROJECT_TOKEN));
     assert.doesNotMatch(JSON.stringify(missingPaginationResult), /\/base\/api\/interface/);
 
+    const invalidCategoriesResult = await client.callTool({
+      name: "yapi_list_interfaces",
+      arguments: { project_id: "44" },
+    });
+    assert.equal(invalidCategoriesResult.isError, true);
+    assert.match(JSON.stringify(invalidCategoriesResult), /payload validation failed/i);
+    assert.doesNotMatch(JSON.stringify(invalidCategoriesResult), new RegExp(PROJECT_TOKEN));
+    assert.doesNotMatch(JSON.stringify(invalidCategoriesResult), /\/base\/api\/interface/);
+
     const batchRequestOffset = requestPaths.length;
     const batchResult = await client.callTool({
       name: "yapi_get_interface_details_batch",
@@ -460,7 +478,13 @@ test("MCP 2026-07-28 stdio lists and calls all read-only YAPI tools without leak
     }).length,
     1,
   );
-  assert.equal(requestPaths.filter((path) => path.startsWith("/base/api/interface/list_menu?")).length, 1);
+  assert.equal(
+    requestPaths.filter((path) => {
+      const url = new URL(path, "http://mock");
+      return url.pathname === "/base/api/interface/list_menu" && url.searchParams.get("project_id") === PROJECT_ID;
+    }).length,
+    1,
+  );
   assert.doesNotMatch(stderr, new RegExp(PROJECT_TOKEN));
   assert.doesNotMatch(stderr, new RegExp(PROJECT_TOKEN.slice(0, 8)));
   assert.doesNotMatch(stderr, /\?token=/);
