@@ -31,8 +31,8 @@ dist/                # Compiled output (gitignored)
 
 ## Architecture
 
-- **Transport**: STDIO (standard input/output)
-- **SDK**: @modelcontextprotocol/sdk
+- **Transport**: STDIO (standard input/output), MCP `2026-07-28` only
+- **SDK**: @modelcontextprotocol/server v2
 - **Validation**: Zod schemas for tool input validation
 
 ## Tools
@@ -48,7 +48,9 @@ dist/                # Compiled output (gitignored)
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `YAPI_URL` | Yes | YAPI instance base URL |
-| `YAPI_PROJECT_TOKEN` | No | Default project token |
+| `YAPI_PROJECT_TOKEN` | Yes | Project token; environment-only, never a tool argument |
+| `YAPI_PROJECT_ID` | No | Default numeric project ID |
+| `YAPI_REQUEST_TIMEOUT_MS` | No | YAPI HTTP timeout in milliseconds |
 
 ## Code Conventions
 
@@ -67,9 +69,9 @@ server.registerTool(
   {
     title: "Tool Title",
     description: "Tool description",
-    inputSchema: {
+    inputSchema: z.object({
       param: z.string().describe("Parameter description"),
-    },
+    }),
   },
   async ({ param }) => {
     return {
