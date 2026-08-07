@@ -4,6 +4,14 @@
   "description": "MCP server for interacting with YAPI API documentation platform",
   "license": "MIT",
   "author": "Yvan",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zjlgdx/yapi-mcp-server.git"
+  },
+  "homepage": "https://github.com/zjlgdx/yapi-mcp-server#readme",
+  "bugs": {
+    "url": "https://github.com/zjlgdx/yapi-mcp-server/issues"
+  },
   "type": "module",
   "bin": {
     "mcp-server-yapi": "dist/index.js"
@@ -22,7 +30,10 @@
     "llm"
   ],
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "shx mkdir -p dist && tsc && shx chmod +x dist/*.js",
