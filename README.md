@@ -10,6 +10,7 @@ This release uses the MCP `2026-07-28` protocol over stdio. Legacy MCP initializ
 - **List Project Interfaces**: Page through a flat project interface list without loading the whole project
 - **List Category Interfaces**: Page through interfaces for a category ID from a YAPI `/cat_<id>` URL
 - **Get Interface Details**: Retrieve detailed information for a specific interface by its ID
+- **Get Interface Details Batch**: Retrieve up to 10 interface details with bounded concurrency and per-ID errors
 - **Search Interfaces**: Search for interfaces by keyword in titles or paths
 
 ## Tools
@@ -53,6 +54,15 @@ Gets detailed information for a specific YAPI interface by its ID.
 - `interface_id` (number, required): The ID of the specific YAPI interface.
 
 **Returns**: A structured object whose `interface` field contains the full interface specification (request/response parameters, headers, body schemas, etc.).
+
+### `yapi_get_interface_details_batch`
+Gets details for a bounded set of known interface IDs while preserving input order. Requests run with a fixed concurrency limit of 3, and one failed ID does not discard successful entries.
+
+**Input**:
+- `project_id` (optional): Numeric project ID. Not required if `YAPI_PROJECT_ID` is set.
+- `interface_ids` (array, required): Between 1 and 10 unique positive integer interface IDs.
+
+**Returns**: A structured object with ordered per-ID results, `requested`, `succeeded`, and `failed` counts. Each result contains either `success: true` with `interface`, or `success: false` with a credential-safe `error`.
 
 ### `yapi_search_interfaces`
 Searches for interfaces by keyword in their titles or paths using bounded server-paginated scanning.
@@ -176,14 +186,14 @@ Add to your Cursor MCP settings:
 
 ### Using npx (Recommended for distribution)
 
-Version `0.6.0` requires an MCP `2026-07-28` client:
+Version `0.7.0` requires an MCP `2026-07-28` client:
 
 ```json
 {
   "mcpServers": {
     "yapi": {
       "command": "npx",
-      "args": ["-y", "@zjlgdx/yapi-mcp-server@0.6.0"],
+      "args": ["-y", "@zjlgdx/yapi-mcp-server@0.7.0"],
       "env": {
         "YAPI_URL": "<your-yapi-url>",
         "YAPI_PROJECT_TOKEN": "<your-project-token>"

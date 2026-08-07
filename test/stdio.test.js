@@ -9,9 +9,12 @@ const PROJECT_TOKEN = "top-secret-project-token";
 const PROJECT_ID = "42";
 const REQUEST_TIMEOUT_MS = 1_000;
 const TIMEOUT_RESPONSE_DELAY_MS = 1_500;
+const BATCH_RESPONSE_DELAY_MS = 50;
 const requestPaths = [];
 let mockServer;
 let baseUrl;
+let activeBatchRequests = 0;
+let maxActiveBatchRequests = 0;
 
 const categories = [
   {
@@ -104,6 +107,19 @@ before(async () => {
         );
         return;
       }
+      if (["201", "202", "203", "204", "205"].includes(id)) {
+        activeBatchRequests += 1;
+        maxActiveBatchRequests = Math.max(maxActiveBatchRequests, activeBatchRequests);
+        setTimeout(() => {
+          activeBatchRequests -= 1;
+          response.end(JSON.stringify({
+            errcode: 0,
+            errmsg: "success",
+            data: { _id: Number(id), title: `Batch ${id}`, path: `/batch/${id}`, method: "GET", uid: 7 },
+          }));
+        }, BATCH_RESPONSE_DELAY_MS);
+        return;
+      }
       response.end(JSON.stringify({
         errcode: 0,
         errmsg: "success",
@@ -160,6 +176,7 @@ test("MCP 2026-07-28 stdio lists and calls all read-only YAPI tools without leak
     const { tools } = await client.listTools();
     assert.deepEqual(tools.map((tool) => tool.name).sort(), [
       "yapi_get_interface_details",
+      "yapi_get_interface_details_batch",
       "yapi_list_category_interfaces",
       "yapi_list_interfaces",
       "yapi_list_project_interfaces",
@@ -167,6 +184,7 @@ test("MCP 2026-07-28 stdio lists and calls all read-only YAPI tools without leak
     ]);
     const expectedOutputFields = {
       yapi_get_interface_details: "interface",
+      yapi_get_interface_details_batch: "results",
       yapi_list_category_interfaces: "category_id",
       yapi_list_interfaces: "categories",
       yapi_list_project_interfaces: "project_id",
@@ -229,6 +247,41 @@ test("MCP 2026-07-28 stdio lists and calls all read-only YAPI tools without leak
     assert.equal(Object.hasOwn(detailResult.structuredContent.interface, "__v"), false);
     assert.equal(Object.hasOwn(detailResult.structuredContent.interface, "uid"), false);
     assert.deepEqual(JSON.parse(detailResult.content[0].text), detailResult.structuredContent);
+
+    const batchRequestOffset = requestPaths.length;
+    const batchResult = await client.callTool({
+      name: "yapi_get_interface_details_batch",
+      arguments: { interface_ids: [201, 999, 202, 203, 204, 205] },
+    });
+    assert.equal(batchResult.isError, undefined);
+    assert.equal(batchResult.structuredContent.requested, 6);
+    assert.equal(batchResult.structuredContent.succeeded, 5);
+    assert.equal(batchResult.structuredContent.failed, 1);
+    assert.deepEqual(
+      batchResult.structuredContent.results.map((entry) => entry.interface_id),
+      [201, 999, 202, 203, 204, 205],
+    );
+    assert.equal(batchResult.structuredContent.results[0].success, true);
+    assert.equal(batchResult.structuredContent.results[0].interface._id, 201);
+    assert.equal(batchResult.structuredContent.results[1].success, false);
+    assert.doesNotMatch(batchResult.structuredContent.results[1].error, new RegExp(PROJECT_TOKEN));
+    assert.doesNotMatch(JSON.stringify(batchResult), new RegExp(PROJECT_TOKEN));
+    assert.equal(maxActiveBatchRequests, 3);
+    assert.deepEqual(JSON.parse(batchResult.content[0].text), batchResult.structuredContent);
+    assert.equal(
+      requestPaths.slice(batchRequestOffset).filter((path) => path.startsWith("/base/api/interface/get?")).length,
+      6,
+    );
+
+    const invalidBatchRequestCount = requestPaths.length;
+    for (const interface_ids of [[0], [201, 201], Array.from({ length: 11 }, (_, index) => index + 1)]) {
+      const invalidBatchResult = await client.callTool({
+        name: "yapi_get_interface_details_batch",
+        arguments: { interface_ids },
+      });
+      assert.equal(invalidBatchResult.isError, true);
+      assert.equal(requestPaths.length, invalidBatchRequestCount);
+    }
 
     const earlyStopRequestOffset = requestPaths.length;
     const searchResult = await client.callTool({
