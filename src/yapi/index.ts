@@ -4,9 +4,12 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import * as z from "zod/v4";
 
-const SERVER_VERSION = "0.4.0";
+const SERVER_VERSION = "0.5.0";
 const DEFAULT_RESULT_LIMIT = 100;
 const MAX_RESULT_LIMIT = 500;
+const SEARCH_PAGE_SIZE = 100;
+const DEFAULT_MAX_SCAN_PAGES = 10;
+const MAX_SCAN_PAGES = 100;
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 
 const rawYapiUrl = process.env.YAPI_URL;
@@ -147,6 +150,9 @@ const projectIdSchema = z.string().regex(/^\d+$/, "project_id must be a numeric 
 const resultLimitSchema = z.number().int().min(1).max(MAX_RESULT_LIMIT).default(DEFAULT_RESULT_LIMIT).describe(
   `Maximum number of interfaces to return (1-${MAX_RESULT_LIMIT}).`
 );
+const maxScanPagesSchema = z.number().int().min(1).max(MAX_SCAN_PAGES).default(DEFAULT_MAX_SCAN_PAGES).describe(
+  `Maximum number of YAPI pages to scan (1-${MAX_SCAN_PAGES}).`
+);
 const readOnlyAnnotations = {
   readOnlyHint: true,
   destructiveHint: false,
@@ -163,6 +169,7 @@ type YapiCategory = {
 
 type YapiInterfaceSummary = {
   _id?: number;
+  catid?: number;
   title?: string;
   path?: string;
   method?: string;
@@ -178,6 +185,7 @@ type YapiInterfacePage = {
 function simplifyInterface(iface: YapiInterfaceSummary) {
   return {
     id: iface._id,
+    category_id: iface.catid,
     title: iface.title,
     path: iface.path,
     method: iface.method,
@@ -374,53 +382,77 @@ function createServer(): McpServer {
     "yapi_search_interfaces",
     {
       title: "Search YAPI Interfaces",
-      description: "Searches interface titles and paths, capped by limit.",
+      description: "Searches interface titles and paths through bounded server-paginated scanning.",
       inputSchema: z.object({
         project_id: projectIdSchema,
         keyword: z.string().trim().min(1).max(200).describe("Keyword to find in interface titles or paths."),
         limit: resultLimitSchema,
+        max_scan_pages: maxScanPagesSchema,
       }),
       annotations: readOnlyAnnotations,
     },
-    async ({ project_id, keyword, limit }) => {
+    async ({ project_id, keyword, limit, max_scan_pages }) => {
       try {
-        const result = await yapiRequest<YapiCategory[]>("api/interface/list_menu", {
-          token: getProjectToken(),
-          project_id: getProjectId(project_id),
-        });
-
+        const resolvedProjectId = getProjectId(project_id);
         const searchKeyword = keyword.toLowerCase();
-        const matchedInterfaces: Array<Record<string, unknown>> = [];
-        let total = 0;
+        const matchedInterfaces: ReturnType<typeof simplifyInterface>[] = [];
+        let matchesFound = 0;
+        let pagesScanned = 0;
+        let interfacesScanned = 0;
+        let projectTotal = 0;
+        let projectTotalPages = 0;
+        let reachedMatchLimit = false;
 
-        for (const category of result) {
-          for (const iface of category.list || []) {
+        for (let page = 1; page <= max_scan_pages; page += 1) {
+          const result = await yapiRequest<YapiInterfacePage>("api/interface/list", {
+            token: getProjectToken(),
+            project_id: resolvedProjectId,
+            page: page.toString(),
+            limit: SEARCH_PAGE_SIZE.toString(),
+          });
+          pagesScanned += 1;
+          projectTotal = result.count;
+          projectTotalPages = result.total;
+
+          for (const iface of result.list || []) {
+            interfacesScanned += 1;
             if (
               iface.title?.toLowerCase().includes(searchKeyword) ||
               iface.path?.toLowerCase().includes(searchKeyword)
             ) {
-              total += 1;
+              matchesFound += 1;
               if (matchedInterfaces.length < limit) {
-                matchedInterfaces.push({
-                  id: iface._id,
-                  title: iface.title,
-                  path: iface.path,
-                  method: iface.method,
-                  status: iface.status,
-                  category: category.name,
-                });
+                matchedInterfaces.push(simplifyInterface(iface));
               }
             }
           }
+
+          reachedMatchLimit = matchedInterfaces.length >= limit;
+          if (reachedMatchLimit || page >= projectTotalPages) break;
         }
+
+        const scanLimitReached = pagesScanned >= max_scan_pages && pagesScanned < projectTotalPages;
+        const matchLimitTruncated = reachedMatchLimit && (
+          pagesScanned < projectTotalPages || matchesFound > matchedInterfaces.length
+        );
+        const truncatedReason = matchLimitTruncated
+          ? "match_limit"
+          : scanLimitReached
+            ? "max_scan_pages"
+            : null;
 
         return {
           content: [{ type: "text", text: JSON.stringify(matchedInterfaces, null, 2) }],
           structuredContent: {
             interfaces: matchedInterfaces,
             returned: matchedInterfaces.length,
-            total,
-            truncated: total > limit,
+            total: matchesFound,
+            pages_scanned: pagesScanned,
+            interfaces_scanned: interfacesScanned,
+            project_total: projectTotal,
+            project_total_pages: projectTotalPages,
+            truncated: truncatedReason !== null,
+            truncated_reason: truncatedReason,
           },
         };
       } catch (error) {
