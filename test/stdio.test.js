@@ -45,11 +45,11 @@ before(async () => {
     if (url.pathname === "/base/api/interface/list_cat") {
       assert.equal(url.searchParams.get("catid"), "77");
       assert.equal(url.searchParams.get("page"), "2");
-      assert.equal(url.searchParams.get("limit"), "1");
+      assert.equal(url.searchParams.get("limit"), "2");
       response.end(JSON.stringify({
         errcode: 0,
         errmsg: "success",
-        data: { count: 3, total: 3, list: [categories[0].list[1]] },
+        data: { count: 3, total: 2, list: [categories[0].list[1]] },
       }));
       return;
     }
@@ -143,15 +143,16 @@ test("MCP 2026-07-28 stdio lists and calls all read-only YAPI tools without leak
 
     const categoryResult = await client.callTool({
       name: "yapi_list_category_interfaces",
-      arguments: { category_id: 77, page: 2, limit: 1 },
+      arguments: { category_id: 77, page: 2, limit: 2 },
     });
     assert.equal(categoryResult.isError, undefined);
     assert.equal(categoryResult.structuredContent.category_id, 77);
     assert.equal(categoryResult.structuredContent.page, 2);
     assert.equal(categoryResult.structuredContent.returned, 1);
     assert.equal(categoryResult.structuredContent.total, 3);
-    assert.equal(categoryResult.structuredContent.total_pages, 3);
+    assert.equal(categoryResult.structuredContent.total_pages, 2);
     assert.equal(categoryResult.structuredContent.interfaces[0].id, 102);
+    assert.deepEqual(JSON.parse(categoryResult.content[0].text), categoryResult.structuredContent);
 
     const detailResult = await client.callTool({
       name: "yapi_get_interface_details",

@@ -274,18 +274,19 @@ function createServer(): McpServer {
           limit: limit.toString(),
         });
         const interfaces = (result.list || []).map(simplifyInterface);
+        const categoryPage = {
+          category_id,
+          page,
+          limit,
+          returned: interfaces.length,
+          total: result.count,
+          total_pages: result.total,
+          interfaces,
+        };
 
         return {
-          content: [{ type: "text", text: JSON.stringify(interfaces, null, 2) }],
-          structuredContent: {
-            category_id,
-            page,
-            limit,
-            returned: interfaces.length,
-            total: result.count,
-            total_pages: result.total,
-            interfaces,
-          },
+          content: [{ type: "text", text: JSON.stringify(categoryPage, null, 2) }],
+          structuredContent: categoryPage,
         };
       } catch (error) {
         return toolError(error);
