@@ -165,10 +165,21 @@ test("MCP 2026-07-28 stdio lists and calls all read-only YAPI tools without leak
       "yapi_list_project_interfaces",
       "yapi_search_interfaces",
     ]);
+    const expectedOutputFields = {
+      yapi_get_interface_details: "interface",
+      yapi_list_category_interfaces: "category_id",
+      yapi_list_interfaces: "categories",
+      yapi_list_project_interfaces: "project_id",
+      yapi_search_interfaces: "pages_scanned",
+    };
     for (const tool of tools) {
       assert.equal(tool.annotations?.readOnlyHint, true);
       assert.equal(tool.annotations?.destructiveHint, false);
       assert.equal(Object.hasOwn(tool.inputSchema.properties || {}, "project_token"), false);
+      assert.equal(tool.outputSchema?.type, "object", `${tool.name} must advertise an object output schema`);
+      const expectedField = expectedOutputFields[tool.name];
+      assert.equal(Object.hasOwn(tool.outputSchema?.properties || {}, expectedField), true);
+      assert.equal(tool.outputSchema?.required?.includes(expectedField), true);
     }
 
     const listResult = await client.callTool({
@@ -180,6 +191,7 @@ test("MCP 2026-07-28 stdio lists and calls all read-only YAPI tools without leak
     assert.equal(listResult.structuredContent.total, 3);
     assert.equal(listResult.structuredContent.truncated, true);
     assert.equal(listResult.structuredContent.categories[0].category_id, 77);
+    assert.deepEqual(JSON.parse(listResult.content[0].text), listResult.structuredContent);
 
     const categoryResult = await client.callTool({
       name: "yapi_list_category_interfaces",
@@ -216,6 +228,7 @@ test("MCP 2026-07-28 stdio lists and calls all read-only YAPI tools without leak
     assert.equal(detailResult.structuredContent.interface._id, 101);
     assert.equal(Object.hasOwn(detailResult.structuredContent.interface, "__v"), false);
     assert.equal(Object.hasOwn(detailResult.structuredContent.interface, "uid"), false);
+    assert.deepEqual(JSON.parse(detailResult.content[0].text), detailResult.structuredContent);
 
     const earlyStopRequestOffset = requestPaths.length;
     const searchResult = await client.callTool({
@@ -232,6 +245,7 @@ test("MCP 2026-07-28 stdio lists and calls all read-only YAPI tools without leak
     assert.equal(searchResult.structuredContent.interfaces[0].category_id, 77);
     assert.equal(searchResult.structuredContent.truncated, true);
     assert.equal(searchResult.structuredContent.truncated_reason, "match_limit");
+    assert.deepEqual(JSON.parse(searchResult.content[0].text), searchResult.structuredContent);
     assert.deepEqual(
       requestPaths.slice(earlyStopRequestOffset).map((path) => new URL(path, "http://mock").searchParams.get("page")),
       ["1"],

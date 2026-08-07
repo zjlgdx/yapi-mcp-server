@@ -4,7 +4,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import * as z from "zod/v4";
 
-const SERVER_VERSION = "0.5.0";
+const SERVER_VERSION = "0.6.0";
 const DEFAULT_RESULT_LIMIT = 100;
 const MAX_RESULT_LIMIT = 500;
 const SEARCH_PAGE_SIZE = 100;
@@ -182,6 +182,55 @@ type YapiInterfacePage = {
   list: YapiInterfaceSummary[];
 };
 
+const interfaceSummaryOutputSchema = z.object({
+  id: z.number().int().positive().optional(),
+  category_id: z.number().int().positive().optional(),
+  title: z.string().optional(),
+  path: z.string().optional(),
+  method: z.string().optional(),
+  status: z.string().optional(),
+});
+const categoryOutputSchema = z.object({
+  category_id: z.number().int().positive().optional(),
+  category_name: z.string().optional(),
+  category_desc: z.string().optional(),
+  interfaces: z.array(interfaceSummaryOutputSchema),
+});
+const listInterfacesOutputSchema = z.object({
+  categories: z.array(categoryOutputSchema),
+  returned: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+  truncated: z.boolean(),
+});
+const paginatedInterfacesOutputSchema = z.object({
+  page: z.number().int().positive(),
+  limit: z.number().int().min(1).max(MAX_RESULT_LIMIT),
+  returned: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+  total_pages: z.number().int().nonnegative(),
+  interfaces: z.array(interfaceSummaryOutputSchema),
+});
+const projectInterfacesOutputSchema = paginatedInterfacesOutputSchema.extend({
+  project_id: z.string().regex(/^\d+$/),
+});
+const categoryInterfacesOutputSchema = paginatedInterfacesOutputSchema.extend({
+  category_id: z.number().int().positive(),
+});
+const interfaceDetailsOutputSchema = z.object({
+  interface: z.record(z.string(), z.unknown()),
+});
+const searchInterfacesOutputSchema = z.object({
+  interfaces: z.array(interfaceSummaryOutputSchema),
+  returned: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+  pages_scanned: z.number().int().nonnegative(),
+  interfaces_scanned: z.number().int().nonnegative(),
+  project_total: z.number().int().nonnegative(),
+  project_total_pages: z.number().int().nonnegative(),
+  truncated: z.boolean(),
+  truncated_reason: z.enum(["match_limit", "max_scan_pages"]).nullable(),
+});
+
 function simplifyInterface(iface: YapiInterfaceSummary) {
   return {
     id: iface._id,
@@ -190,6 +239,13 @@ function simplifyInterface(iface: YapiInterfaceSummary) {
     path: iface.path,
     method: iface.method,
     status: iface.status,
+  };
+}
+
+function toolSuccess<T extends Record<string, unknown>>(output: T) {
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(output, null, 2) }],
+    structuredContent: output,
   };
 }
 
@@ -226,6 +282,7 @@ function createServer(): McpServer {
         page: z.number().int().min(1).default(1).describe("One-based page number."),
         limit: resultLimitSchema,
       }),
+      outputSchema: projectInterfacesOutputSchema,
       annotations: readOnlyAnnotations,
     },
     async ({ project_id, page, limit }) => {
@@ -248,10 +305,7 @@ function createServer(): McpServer {
           interfaces,
         };
 
-        return {
-          content: [{ type: "text", text: JSON.stringify(projectPage, null, 2) }],
-          structuredContent: projectPage,
-        };
+        return toolSuccess(projectPage);
       } catch (error) {
         return toolError(error);
       }
@@ -267,6 +321,7 @@ function createServer(): McpServer {
         project_id: projectIdSchema,
         limit: resultLimitSchema,
       }),
+      outputSchema: listInterfacesOutputSchema,
       annotations: readOnlyAnnotations,
     },
     async ({ project_id, limit }) => {
@@ -289,15 +344,12 @@ function createServer(): McpServer {
         }).filter((category) => category.interfaces.length > 0);
 
         const total = result.reduce((count, category) => count + (category.list?.length || 0), 0);
-        return {
-          content: [{ type: "text", text: JSON.stringify(categories, null, 2) }],
-          structuredContent: {
-            categories,
-            returned: limit - remaining,
-            total,
-            truncated: total > limit,
-          },
-        };
+        return toolSuccess({
+          categories,
+          returned: limit - remaining,
+          total,
+          truncated: total > limit,
+        });
       } catch (error) {
         return toolError(error);
       }
@@ -314,6 +366,7 @@ function createServer(): McpServer {
         page: z.number().int().min(1).default(1).describe("One-based page number."),
         limit: resultLimitSchema,
       }),
+      outputSchema: categoryInterfacesOutputSchema,
       annotations: readOnlyAnnotations,
     },
     async ({ category_id, page, limit }) => {
@@ -335,10 +388,7 @@ function createServer(): McpServer {
           interfaces,
         };
 
-        return {
-          content: [{ type: "text", text: JSON.stringify(categoryPage, null, 2) }],
-          structuredContent: categoryPage,
-        };
+        return toolSuccess(categoryPage);
       } catch (error) {
         return toolError(error);
       }
@@ -354,6 +404,7 @@ function createServer(): McpServer {
         project_id: projectIdSchema,
         interface_id: z.number().int().positive().describe("The positive integer YAPI interface ID."),
       }),
+      outputSchema: interfaceDetailsOutputSchema,
       annotations: readOnlyAnnotations,
     },
     async ({ project_id, interface_id }) => {
@@ -368,10 +419,7 @@ function createServer(): McpServer {
           delete result[field];
         }
 
-        return {
-          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-          structuredContent: { interface: result },
-        };
+        return toolSuccess({ interface: result });
       } catch (error) {
         return toolError(error);
       }
@@ -389,6 +437,7 @@ function createServer(): McpServer {
         limit: resultLimitSchema,
         max_scan_pages: maxScanPagesSchema,
       }),
+      outputSchema: searchInterfacesOutputSchema,
       annotations: readOnlyAnnotations,
     },
     async ({ project_id, keyword, limit, max_scan_pages }) => {
@@ -441,20 +490,17 @@ function createServer(): McpServer {
             ? "max_scan_pages"
             : null;
 
-        return {
-          content: [{ type: "text", text: JSON.stringify(matchedInterfaces, null, 2) }],
-          structuredContent: {
-            interfaces: matchedInterfaces,
-            returned: matchedInterfaces.length,
-            total: matchesFound,
-            pages_scanned: pagesScanned,
-            interfaces_scanned: interfacesScanned,
-            project_total: projectTotal,
-            project_total_pages: projectTotalPages,
-            truncated: truncatedReason !== null,
-            truncated_reason: truncatedReason,
-          },
-        };
+        return toolSuccess({
+          interfaces: matchedInterfaces,
+          returned: matchedInterfaces.length,
+          total: matchesFound,
+          pages_scanned: pagesScanned,
+          interfaces_scanned: interfacesScanned,
+          project_total: projectTotal,
+          project_total_pages: projectTotalPages,
+          truncated: truncatedReason !== null,
+          truncated_reason: truncatedReason,
+        });
       } catch (error) {
         return toolError(error);
       }
