@@ -13,6 +13,7 @@ let baseUrl;
 
 const categories = [
   {
+    _id: 77,
     name: "Users",
     desc: "User APIs",
     list: [
@@ -21,6 +22,7 @@ const categories = [
     ],
   },
   {
+    _id: 78,
     name: "Health",
     desc: "Health APIs",
     list: [{ _id: 103, title: "Health", path: "/health", method: "GET", status: "done" }],
@@ -33,15 +35,27 @@ before(async () => {
     requestPaths.push(request.url);
 
     assert.equal(url.searchParams.get("token"), PROJECT_TOKEN);
-    assert.equal(url.searchParams.get("project_id"), PROJECT_ID);
-
     response.setHeader("Content-Type", "application/json");
     if (url.pathname === "/base/api/interface/list_menu") {
+      assert.equal(url.searchParams.get("project_id"), PROJECT_ID);
       response.end(JSON.stringify({ errcode: 0, errmsg: "success", data: categories }));
       return;
     }
 
+    if (url.pathname === "/base/api/interface/list_cat") {
+      assert.equal(url.searchParams.get("catid"), "77");
+      assert.equal(url.searchParams.get("page"), "2");
+      assert.equal(url.searchParams.get("limit"), "1");
+      response.end(JSON.stringify({
+        errcode: 0,
+        errmsg: "success",
+        data: { count: 3, total: 3, list: [categories[0].list[1]] },
+      }));
+      return;
+    }
+
     if (url.pathname === "/base/api/interface/get") {
+      assert.equal(url.searchParams.get("project_id"), PROJECT_ID);
       const id = url.searchParams.get("id");
       if (id === "999") {
         response.end(JSON.stringify({ errcode: 400, errmsg: `invalid token ${PROJECT_TOKEN}`, data: null }));
@@ -107,6 +121,7 @@ test("MCP 2026-07-28 stdio lists and calls all read-only YAPI tools without leak
     const { tools } = await client.listTools();
     assert.deepEqual(tools.map((tool) => tool.name).sort(), [
       "yapi_get_interface_details",
+      "yapi_list_category_interfaces",
       "yapi_list_interfaces",
       "yapi_search_interfaces",
     ]);
@@ -124,6 +139,19 @@ test("MCP 2026-07-28 stdio lists and calls all read-only YAPI tools without leak
     assert.equal(listResult.structuredContent.returned, 1);
     assert.equal(listResult.structuredContent.total, 3);
     assert.equal(listResult.structuredContent.truncated, true);
+    assert.equal(listResult.structuredContent.categories[0].category_id, 77);
+
+    const categoryResult = await client.callTool({
+      name: "yapi_list_category_interfaces",
+      arguments: { category_id: 77, page: 2, limit: 1 },
+    });
+    assert.equal(categoryResult.isError, undefined);
+    assert.equal(categoryResult.structuredContent.category_id, 77);
+    assert.equal(categoryResult.structuredContent.page, 2);
+    assert.equal(categoryResult.structuredContent.returned, 1);
+    assert.equal(categoryResult.structuredContent.total, 3);
+    assert.equal(categoryResult.structuredContent.total_pages, 3);
+    assert.equal(categoryResult.structuredContent.interfaces[0].id, 102);
 
     const detailResult = await client.callTool({
       name: "yapi_get_interface_details",
@@ -170,6 +198,12 @@ test("MCP 2026-07-28 stdio lists and calls all read-only YAPI tools without leak
     });
     assert.equal(invalidProjectResult.isError, true);
     assert.match(JSON.stringify(invalidProjectResult), /numeric string/i);
+
+    const invalidCategoryResult = await client.callTool({
+      name: "yapi_list_category_interfaces",
+      arguments: { category_id: 0 },
+    });
+    assert.equal(invalidCategoryResult.isError, true);
   } finally {
     await client.close();
   }
