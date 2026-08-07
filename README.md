@@ -53,14 +53,15 @@ Gets detailed information for a specific YAPI interface by its ID.
 **Returns**: JSON object with full interface specification (request/response parameters, headers, body schemas, etc.).
 
 ### `yapi_search_interfaces`
-Searches for interfaces by keyword in their titles or paths.
+Searches for interfaces by keyword in their titles or paths using bounded server-paginated scanning.
 
 **Input**:
 - `project_id` (optional): Numeric project ID. Not required if `YAPI_PROJECT_ID` is set.
 - `keyword` (string, required): The keyword to search for.
 - `limit` (optional, default `100`): Maximum matches to return; allowed range is `1` to `500`.
+- `max_scan_pages` (optional, default `10`): Maximum YAPI pages to scan; allowed range is `1` to `100`.
 
-**Returns**: JSON array of matching interfaces with their category information.
+**Returns**: Matching interfaces plus `pages_scanned`, `interfaces_scanned`, project pagination totals, and truncation metadata. `total` is the number of matches found in the scanned pages. `truncated_reason` is `match_limit`, `max_scan_pages`, or `null` after a complete scan.
 
 ## Prerequisites
 
@@ -173,14 +174,14 @@ Add to your Cursor MCP settings:
 
 ### Using npx (Recommended for distribution)
 
-Version `0.4.0` requires an MCP `2026-07-28` client:
+Version `0.5.0` requires an MCP `2026-07-28` client:
 
 ```json
 {
   "mcpServers": {
     "yapi": {
       "command": "npx",
-      "args": ["-y", "@zjlgdx/yapi-mcp-server@0.4.0"],
+      "args": ["-y", "@zjlgdx/yapi-mcp-server@0.5.0"],
       "env": {
         "YAPI_URL": "<your-yapi-url>",
         "YAPI_PROJECT_TOKEN": "<your-project-token>"
