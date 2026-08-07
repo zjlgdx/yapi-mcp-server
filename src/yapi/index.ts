@@ -169,6 +169,7 @@ type YapiCategory = {
 
 type YapiInterfaceSummary = {
   _id?: number;
+  catid?: number;
   title?: string;
   path?: string;
   method?: string;
@@ -184,6 +185,7 @@ type YapiInterfacePage = {
 function simplifyInterface(iface: YapiInterfaceSummary) {
   return {
     id: iface._id,
+    category_id: iface.catid,
     title: iface.title,
     path: iface.path,
     method: iface.method,
@@ -393,7 +395,7 @@ function createServer(): McpServer {
       try {
         const resolvedProjectId = getProjectId(project_id);
         const searchKeyword = keyword.toLowerCase();
-        const matchedInterfaces: Array<Record<string, unknown>> = [];
+        const matchedInterfaces: ReturnType<typeof simplifyInterface>[] = [];
         let matchesFound = 0;
         let pagesScanned = 0;
         let interfacesScanned = 0;
@@ -420,13 +422,7 @@ function createServer(): McpServer {
             ) {
               matchesFound += 1;
               if (matchedInterfaces.length < limit) {
-                matchedInterfaces.push({
-                  id: iface._id,
-                  title: iface.title,
-                  path: iface.path,
-                  method: iface.method,
-                  status: iface.status,
-                });
+                matchedInterfaces.push(simplifyInterface(iface));
               }
             }
           }

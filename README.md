@@ -21,7 +21,7 @@ Lists all interface categories and the interfaces within them for a specific YAP
 - `project_id` (optional): Numeric project ID. Not required if `YAPI_PROJECT_ID` is set.
 - `limit` (optional, default `100`): Maximum interfaces to return; allowed range is `1` to `500`.
 
-**Returns**: JSON array of categories, including `category_id`, with simplified interface objects (id, title, path, method, status).
+**Returns**: JSON array of categories, including `category_id`, with simplified interface objects (id, category_id, title, path, method, status).
 
 ### `yapi_list_category_interfaces`
 Lists one page of interfaces for a category ID without loading every interface in the project.
@@ -61,7 +61,7 @@ Searches for interfaces by keyword in their titles or paths using bounded server
 - `limit` (optional, default `100`): Maximum matches to return; allowed range is `1` to `500`.
 - `max_scan_pages` (optional, default `10`): Maximum YAPI pages to scan; allowed range is `1` to `100`.
 
-**Returns**: Matching interfaces plus `pages_scanned`, `interfaces_scanned`, project pagination totals, and truncation metadata. `total` is the number of matches found in the scanned pages. `truncated_reason` is `match_limit`, `max_scan_pages`, or `null` after a complete scan.
+**Returns**: Matching interfaces (including `category_id` when supplied by YAPI) plus `pages_scanned`, `interfaces_scanned`, project pagination totals, and truncation metadata. `total` is the number of matches found in the scanned pages. `truncated_reason` is `match_limit`, `max_scan_pages`, or `null` after a complete scan.
 
 ## Prerequisites
 

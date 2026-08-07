@@ -19,15 +19,15 @@ const categories = [
     name: "Users",
     desc: "User APIs",
     list: [
-      { _id: 101, title: "List users", path: "/users", method: "GET", status: "done" },
-      { _id: 102, title: "Create user", path: "/users", method: "POST", status: "done" },
+      { _id: 101, catid: 77, title: "List users", path: "/users", method: "GET", status: "done" },
+      { _id: 102, catid: 77, title: "Create user", path: "/users", method: "POST", status: "done" },
     ],
   },
   {
     _id: 78,
     name: "Health",
     desc: "Health APIs",
-    list: [{ _id: 103, title: "Health", path: "/health", method: "GET", status: "done" }],
+    list: [{ _id: 103, catid: 78, title: "Health", path: "/health", method: "GET", status: "done" }],
   },
 ];
 
@@ -62,14 +62,17 @@ before(async () => {
       const limit = url.searchParams.get("limit");
       if (limit === "100") {
         const searchPages = {
-          1: [categories[0].list[0]],
+          1: [
+            categories[0].list[0],
+            { _id: 104, catid: 77, title: "List user roles", path: "/users/roles", method: "GET", status: "done" },
+          ],
           2: [categories[1].list[0]],
           3: [categories[0].list[1]],
         };
         response.end(JSON.stringify({
           errcode: 0,
           errmsg: "success",
-          data: { count: 3, total: 3, list: searchPages[page] || [] },
+          data: { count: 250, total: 3, list: searchPages[page] || [] },
         }));
         return;
       }
@@ -218,11 +221,12 @@ test("MCP 2026-07-28 stdio lists and calls all read-only YAPI tools without leak
     });
     assert.equal(searchResult.isError, undefined);
     assert.equal(searchResult.structuredContent.returned, 1);
-    assert.equal(searchResult.structuredContent.total, 1);
+    assert.equal(searchResult.structuredContent.total, 2);
     assert.equal(searchResult.structuredContent.pages_scanned, 1);
-    assert.equal(searchResult.structuredContent.interfaces_scanned, 1);
-    assert.equal(searchResult.structuredContent.project_total, 3);
+    assert.equal(searchResult.structuredContent.interfaces_scanned, 2);
+    assert.equal(searchResult.structuredContent.project_total, 250);
     assert.equal(searchResult.structuredContent.project_total_pages, 3);
+    assert.equal(searchResult.structuredContent.interfaces[0].category_id, 77);
     assert.equal(searchResult.structuredContent.truncated, true);
     assert.equal(searchResult.structuredContent.truncated_reason, "match_limit");
     assert.deepEqual(
@@ -238,7 +242,7 @@ test("MCP 2026-07-28 stdio lists and calls all read-only YAPI tools without leak
     assert.equal(exhaustedSearchResult.isError, undefined);
     assert.equal(exhaustedSearchResult.structuredContent.returned, 0);
     assert.equal(exhaustedSearchResult.structuredContent.pages_scanned, 3);
-    assert.equal(exhaustedSearchResult.structuredContent.interfaces_scanned, 3);
+    assert.equal(exhaustedSearchResult.structuredContent.interfaces_scanned, 4);
     assert.equal(exhaustedSearchResult.structuredContent.truncated, false);
     assert.equal(exhaustedSearchResult.structuredContent.truncated_reason, null);
     assert.deepEqual(
@@ -254,7 +258,7 @@ test("MCP 2026-07-28 stdio lists and calls all read-only YAPI tools without leak
     assert.equal(boundedSearchResult.isError, undefined);
     assert.equal(boundedSearchResult.structuredContent.returned, 0);
     assert.equal(boundedSearchResult.structuredContent.pages_scanned, 2);
-    assert.equal(boundedSearchResult.structuredContent.interfaces_scanned, 2);
+    assert.equal(boundedSearchResult.structuredContent.interfaces_scanned, 3);
     assert.equal(boundedSearchResult.structuredContent.truncated, true);
     assert.equal(boundedSearchResult.structuredContent.truncated_reason, "max_scan_pages");
     assert.deepEqual(
@@ -268,6 +272,13 @@ test("MCP 2026-07-28 stdio lists and calls all read-only YAPI tools without leak
       arguments: { keyword: "users", max_scan_pages: 0 },
     });
     assert.equal(invalidScanResult.isError, true);
+    assert.equal(requestPaths.length, invalidScanRequestCount);
+
+    const oversizedScanResult = await client.callTool({
+      name: "yapi_search_interfaces",
+      arguments: { keyword: "users", max_scan_pages: 101 },
+    });
+    assert.equal(oversizedScanResult.isError, true);
     assert.equal(requestPaths.length, invalidScanRequestCount);
 
     const validationResult = await client.callTool({
