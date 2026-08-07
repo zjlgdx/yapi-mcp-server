@@ -162,14 +162,14 @@ Add to your Cursor MCP settings:
 
 ### Using npx (Recommended for distribution)
 
-Use the actual published package name. Version `0.3.0` requires an MCP `2026-07-28` client:
+Version `0.3.0` requires an MCP `2026-07-28` client:
 
 ```json
 {
   "mcpServers": {
     "yapi": {
       "command": "npx",
-      "args": ["-y", "mcp-server-yapi@0.3.0"],
+      "args": ["-y", "@zjlgdx/yapi-mcp-server@0.3.0"],
       "env": {
         "YAPI_URL": "<your-yapi-url>",
         "YAPI_PROJECT_TOKEN": "<your-project-token>"
@@ -227,9 +227,15 @@ The server is read-only: all exposed tools use YAPI `GET` endpoints and are adve
 
 ## Publishing
 
-Publishing is performed only by `.github/workflows/publish.yml` after a stable GitHub Release is published. The release tag must be `v<package.json version>`, point to a commit on `main`, and pass the same build, test, audit, and package-content gates used by CI. The workflow uses npm Trusted Publishing through GitHub OIDC; do not add an `NPM_TOKEN` secret or publish manually as a fallback.
+The npm package is `@zjlgdx/yapi-mcp-server`. The unscoped `mcp-server-yapi` package belongs to an unrelated publisher and must never be used as this repository's release target.
 
-One-time npm configuration must be completed by an existing `mcp-server-yapi` maintainer before the first automated release:
+After the one-time bootstrap below, publishing is performed only by `.github/workflows/publish.yml` when a stable GitHub Release is published. The release tag must be `v<package.json version>`, point to a commit on `main`, and pass the same build, test, audit, and package-content gates used by CI. The workflow uses npm Trusted Publishing through GitHub OIDC; do not add an `NPM_TOKEN` secret or use manual publishing as a fallback.
+
+Because npm requires a package to exist before Trusted Publishing can be configured, the owner of the npm `zjlgdx` user or organization scope must perform a one-time bootstrap with an npm account protected by 2FA:
+
+1. Confirm that the authenticated npm account owns the `@zjlgdx` scope.
+2. From a temporary clean copy of an exact, verified `main` commit, set a disposable prerelease version such as `0.0.0-bootstrap.0` without committing it, then run `npm publish --access public --tag bootstrap`. Do not manually publish a stable release version.
+3. Immediately configure Trusted Publishing on the new package with these exact values:
 
 - Publisher: GitHub Actions
 - Organization or user: `zjlgdx`
@@ -238,7 +244,9 @@ One-time npm configuration must be completed by an existing `mcp-server-yapi` ma
 - Environment: `npm`
 - Allowed action: `npm publish`
 
-The GitHub `npm` environment must allow only tags matching `v*`. Enable required reviewers when a reviewer distinct from the releaser is available. Trusted Publishing requires a public GitHub-hosted runner and automatically generates npm provenance for this public package.
+4. Set package publishing access to require 2FA and disallow traditional tokens.
+
+The bootstrap prerelease is the only manual publish. Every stable version must use the release workflow. The GitHub `npm` environment must allow only tags matching `v*`. Enable required reviewers when a reviewer distinct from the releaser is available. Trusted Publishing requires a public GitHub-hosted runner and automatically generates npm provenance for this public package.
 
 ## License
 
