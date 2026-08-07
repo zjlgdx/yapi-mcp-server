@@ -60,7 +60,16 @@ before(async () => {
     }
 
     if (url.pathname === "/base/api/interface/list") {
-      assert.equal(url.searchParams.get("project_id"), PROJECT_ID);
+      const projectId = url.searchParams.get("project_id");
+      if (projectId === "43") {
+        response.end(JSON.stringify({
+          errcode: 0,
+          errmsg: "success",
+          data: { list: [], leaked: PROJECT_TOKEN },
+        }));
+        return;
+      }
+      assert.equal(projectId, PROJECT_ID);
       const page = url.searchParams.get("page");
       const limit = url.searchParams.get("limit");
       if (limit === "100") {
@@ -96,6 +105,18 @@ before(async () => {
     if (url.pathname === "/base/api/interface/get") {
       assert.equal(url.searchParams.get("project_id"), PROJECT_ID);
       const id = url.searchParams.get("id");
+      if (id === "700") {
+        response.end("not-json");
+        return;
+      }
+      if (id === "701") {
+        response.end(JSON.stringify({ errmsg: PROJECT_TOKEN, data: {} }));
+        return;
+      }
+      if (id === "702") {
+        response.end(JSON.stringify({ errcode: 0, errmsg: "success", data: [PROJECT_TOKEN] }));
+        return;
+      }
       if (id === "999") {
         response.end(JSON.stringify({ errcode: 400, errmsg: `invalid token ${PROJECT_TOKEN}`, data: null }));
         return;
@@ -247,6 +268,31 @@ test("MCP 2026-07-28 stdio lists and calls all read-only YAPI tools without leak
     assert.equal(Object.hasOwn(detailResult.structuredContent.interface, "__v"), false);
     assert.equal(Object.hasOwn(detailResult.structuredContent.interface, "uid"), false);
     assert.deepEqual(JSON.parse(detailResult.content[0].text), detailResult.structuredContent);
+
+    const invalidResponseCases = [
+      { interface_id: 700, message: /invalid JSON/i },
+      { interface_id: 701, message: /envelope validation failed.*errcode/i },
+      { interface_id: 702, message: /payload validation failed/i },
+    ];
+    for (const { interface_id, message } of invalidResponseCases) {
+      const invalidResponseResult = await client.callTool({
+        name: "yapi_get_interface_details",
+        arguments: { interface_id },
+      });
+      assert.equal(invalidResponseResult.isError, true);
+      assert.match(JSON.stringify(invalidResponseResult), message);
+      assert.doesNotMatch(JSON.stringify(invalidResponseResult), new RegExp(PROJECT_TOKEN));
+      assert.doesNotMatch(JSON.stringify(invalidResponseResult), /\/base\/api\/interface/);
+    }
+
+    const missingPaginationResult = await client.callTool({
+      name: "yapi_list_project_interfaces",
+      arguments: { project_id: "43" },
+    });
+    assert.equal(missingPaginationResult.isError, true);
+    assert.match(JSON.stringify(missingPaginationResult), /payload validation failed.*count.*total/i);
+    assert.doesNotMatch(JSON.stringify(missingPaginationResult), new RegExp(PROJECT_TOKEN));
+    assert.doesNotMatch(JSON.stringify(missingPaginationResult), /\/base\/api\/interface/);
 
     const batchRequestOffset = requestPaths.length;
     const batchResult = await client.callTool({
