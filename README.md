@@ -7,6 +7,7 @@ This release uses the MCP `2026-07-28` protocol over stdio. Legacy MCP initializ
 ## Features
 
 - **List Interfaces**: Get all interface categories and basic interface info within a project
+- **List Project Interfaces**: Page through a flat project interface list without loading the whole project
 - **List Category Interfaces**: Page through interfaces for a category ID from a YAPI `/cat_<id>` URL
 - **Get Interface Details**: Retrieve detailed information for a specific interface by its ID
 - **Search Interfaces**: Search for interfaces by keyword in titles or paths
@@ -31,6 +32,16 @@ Lists one page of interfaces for a category ID without loading every interface i
 - `limit` (optional, default `100`): Page size; allowed range is `1` to `500`.
 
 **Returns**: Interface summaries plus `returned`, `total`, and `total_pages` pagination metadata.
+
+### `yapi_list_project_interfaces`
+Lists exactly one server-paginated page of interfaces for a project.
+
+**Input**:
+- `project_id` (optional): Numeric project ID. Not required if `YAPI_PROJECT_ID` is set.
+- `page` (optional, default `1`): One-based page number.
+- `limit` (optional, default `100`): Page size; allowed range is `1` to `500`.
+
+**Returns**: A flat interface page with `project_id`, `page`, `limit`, `returned`, `total`, and `total_pages` metadata.
 
 ### `yapi_get_interface_details`
 Gets detailed information for a specific YAPI interface by its ID.
@@ -162,14 +173,14 @@ Add to your Cursor MCP settings:
 
 ### Using npx (Recommended for distribution)
 
-Version `0.3.0` requires an MCP `2026-07-28` client:
+Version `0.4.0` requires an MCP `2026-07-28` client:
 
 ```json
 {
   "mcpServers": {
     "yapi": {
       "command": "npx",
-      "args": ["-y", "@zjlgdx/yapi-mcp-server@0.3.0"],
+      "args": ["-y", "@zjlgdx/yapi-mcp-server@0.4.0"],
       "env": {
         "YAPI_URL": "<your-yapi-url>",
         "YAPI_PROJECT_TOKEN": "<your-project-token>"

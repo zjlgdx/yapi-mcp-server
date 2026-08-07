@@ -56,6 +56,18 @@ before(async () => {
       return;
     }
 
+    if (url.pathname === "/base/api/interface/list") {
+      assert.equal(url.searchParams.get("project_id"), PROJECT_ID);
+      assert.equal(url.searchParams.get("page"), "2");
+      assert.equal(url.searchParams.get("limit"), "2");
+      response.end(JSON.stringify({
+        errcode: 0,
+        errmsg: "success",
+        data: { count: 3, total: 2, list: [categories[0].list[1]] },
+      }));
+      return;
+    }
+
     if (url.pathname === "/base/api/interface/get") {
       assert.equal(url.searchParams.get("project_id"), PROJECT_ID);
       const id = url.searchParams.get("id");
@@ -128,6 +140,7 @@ test("MCP 2026-07-28 stdio lists and calls all read-only YAPI tools without leak
       "yapi_get_interface_details",
       "yapi_list_category_interfaces",
       "yapi_list_interfaces",
+      "yapi_list_project_interfaces",
       "yapi_search_interfaces",
     ]);
     for (const tool of tools) {
@@ -158,6 +171,20 @@ test("MCP 2026-07-28 stdio lists and calls all read-only YAPI tools without leak
     assert.equal(categoryResult.structuredContent.total_pages, 2);
     assert.equal(categoryResult.structuredContent.interfaces[0].id, 102);
     assert.deepEqual(JSON.parse(categoryResult.content[0].text), categoryResult.structuredContent);
+
+    const projectPageResult = await client.callTool({
+      name: "yapi_list_project_interfaces",
+      arguments: { page: 2, limit: 2 },
+    });
+    assert.equal(projectPageResult.isError, undefined);
+    assert.equal(projectPageResult.structuredContent.project_id, PROJECT_ID);
+    assert.equal(projectPageResult.structuredContent.page, 2);
+    assert.equal(projectPageResult.structuredContent.limit, 2);
+    assert.equal(projectPageResult.structuredContent.returned, 1);
+    assert.equal(projectPageResult.structuredContent.total, 3);
+    assert.equal(projectPageResult.structuredContent.total_pages, 2);
+    assert.equal(projectPageResult.structuredContent.interfaces[0].id, 102);
+    assert.deepEqual(JSON.parse(projectPageResult.content[0].text), projectPageResult.structuredContent);
 
     const detailResult = await client.callTool({
       name: "yapi_get_interface_details",
@@ -215,6 +242,7 @@ test("MCP 2026-07-28 stdio lists and calls all read-only YAPI tools without leak
   }
 
   assert.equal(requestPaths.some((path) => path.includes("//api/")), false);
+  assert.equal(requestPaths.filter((path) => path.startsWith("/base/api/interface/list?")).length, 1);
   assert.doesNotMatch(stderr, new RegExp(PROJECT_TOKEN));
   assert.doesNotMatch(stderr, new RegExp(PROJECT_TOKEN.slice(0, 8)));
   assert.doesNotMatch(stderr, /\?token=/);
