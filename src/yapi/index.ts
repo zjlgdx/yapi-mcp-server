@@ -4,7 +4,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import * as z from "zod/v4";
 
-const SERVER_VERSION = "0.7.0";
+const SERVER_VERSION = "0.8.0";
 const DEFAULT_RESULT_LIMIT = 100;
 const MAX_RESULT_LIMIT = 500;
 const MAX_DETAIL_BATCH_SIZE = 10;
@@ -100,13 +100,24 @@ function getProjectId(providedId?: string): string {
   return projectId;
 }
 
-type YapiEnvelope<T> = {
-  errcode: number;
-  errmsg?: string;
-  data: T;
-};
+const yapiEnvelopeSchema = z.object({
+  errcode: z.number().int(),
+  errmsg: z.string().optional(),
+  data: z.json(),
+});
 
-async function yapiRequest<T>(endpoint: string, params: Record<string, string>): Promise<T> {
+function responseValidationError(scope: "envelope" | "payload", error: z.ZodError) {
+  const paths = [...new Set(error.issues.map((issue) => (
+    issue.path.length > 0 ? issue.path.map(String).join(".") : "response"
+  )))].sort();
+  return new Error(`YAPI ${scope} validation failed at ${paths.join(", ")}`);
+}
+
+async function yapiRequest<T>(
+  endpoint: string,
+  params: Record<string, string>,
+  payloadSchema: z.ZodType<T>,
+): Promise<T> {
   const url = new URL(endpoint.replace(/^\/+/, ""), YAPI_BASE_URL);
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.append(key, value);
@@ -132,18 +143,28 @@ async function yapiRequest<T>(endpoint: string, params: Record<string, string>):
     throw new Error(`YAPI API error: ${response.status} ${response.statusText}`);
   }
 
-  let body: YapiEnvelope<T>;
+  let rawBody: unknown;
   try {
-    body = (await response.json()) as YapiEnvelope<T>;
+    rawBody = await response.json();
   } catch {
     throw new Error("YAPI API returned invalid JSON");
   }
+
+  const envelopeResult = yapiEnvelopeSchema.safeParse(rawBody);
+  if (!envelopeResult.success) {
+    throw responseValidationError("envelope", envelopeResult.error);
+  }
+  const body = envelopeResult.data;
 
   if (body.errcode !== 0) {
     throw new Error(`YAPI error (${body.errcode}): ${redactSecrets(body.errmsg || "Unknown error")}`);
   }
 
-  return body.data;
+  const payloadResult = payloadSchema.safeParse(body.data);
+  if (!payloadResult.success) {
+    throw responseValidationError("payload", payloadResult.error);
+  }
+  return payloadResult.data;
 }
 
 const projectIdSchema = z.string().regex(/^\d+$/, "project_id must be a numeric string").optional().describe(
@@ -167,27 +188,29 @@ const readOnlyAnnotations = {
   openWorldHint: true,
 };
 
-type YapiCategory = {
-  _id?: number;
-  name?: string;
-  desc?: string;
-  list?: YapiInterfaceSummary[];
-};
+const yapiInterfaceSummarySchema = z.object({
+  _id: z.number().int().positive().optional(),
+  catid: z.number().int().positive().optional(),
+  title: z.string().optional(),
+  path: z.string().optional(),
+  method: z.string().optional(),
+  status: z.string().optional(),
+});
+type YapiInterfaceSummary = z.infer<typeof yapiInterfaceSummarySchema>;
 
-type YapiInterfaceSummary = {
-  _id?: number;
-  catid?: number;
-  title?: string;
-  path?: string;
-  method?: string;
-  status?: string;
-};
-
-type YapiInterfacePage = {
-  count: number;
-  total: number;
-  list: YapiInterfaceSummary[];
-};
+const yapiCategorySchema = z.object({
+  _id: z.number().int().positive().optional(),
+  name: z.string().optional(),
+  desc: z.string().optional(),
+  list: z.array(yapiInterfaceSummarySchema).optional(),
+});
+const yapiCategoriesSchema = z.array(yapiCategorySchema);
+const yapiInterfacePageSchema = z.object({
+  count: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+  list: z.array(yapiInterfaceSummarySchema),
+});
+const yapiInterfaceDetailsPayloadSchema = z.record(z.string(), z.json());
 
 const interfaceSummaryOutputSchema = z.object({
   id: z.number().int().positive().optional(),
@@ -276,11 +299,15 @@ function toolSuccess<T extends Record<string, unknown>>(output: T) {
 }
 
 async function fetchInterfaceDetails(projectId: string, interfaceId: number, token: string) {
-  const result = await yapiRequest<Record<string, unknown>>("api/interface/get", {
-    token,
-    project_id: projectId,
-    id: interfaceId.toString(),
-  });
+  const result = await yapiRequest(
+    "api/interface/get",
+    {
+      token,
+      project_id: projectId,
+      id: interfaceId.toString(),
+    },
+    yapiInterfaceDetailsPayloadSchema,
+  );
 
   for (const field of ["__v", "edit_uid", "add_time", "up_time", "uid"]) {
     delete result[field];
@@ -397,13 +424,17 @@ function createServer(): McpServer {
     async ({ project_id, page, limit }) => {
       try {
         const resolvedProjectId = getProjectId(project_id);
-        const result = await yapiRequest<YapiInterfacePage>("api/interface/list", {
-          token: getProjectToken(),
-          project_id: resolvedProjectId,
-          page: page.toString(),
-          limit: limit.toString(),
-        });
-        const interfaces = (result.list || []).map(simplifyInterface);
+        const result = await yapiRequest(
+          "api/interface/list",
+          {
+            token: getProjectToken(),
+            project_id: resolvedProjectId,
+            page: page.toString(),
+            limit: limit.toString(),
+          },
+          yapiInterfacePageSchema,
+        );
+        const interfaces = result.list.map(simplifyInterface);
         const projectPage = {
           project_id: resolvedProjectId,
           page,
@@ -435,10 +466,14 @@ function createServer(): McpServer {
     },
     async ({ project_id, limit }) => {
       try {
-        const result = await yapiRequest<YapiCategory[]>("api/interface/list_menu", {
-          token: getProjectToken(),
-          project_id: getProjectId(project_id),
-        });
+        const result = await yapiRequest(
+          "api/interface/list_menu",
+          {
+            token: getProjectToken(),
+            project_id: getProjectId(project_id),
+          },
+          yapiCategoriesSchema,
+        );
 
         let remaining = limit;
         const categories = result.map((category) => {
@@ -480,13 +515,17 @@ function createServer(): McpServer {
     },
     async ({ category_id, page, limit }) => {
       try {
-        const result = await yapiRequest<YapiInterfacePage>("api/interface/list_cat", {
-          token: getProjectToken(),
-          catid: category_id.toString(),
-          page: page.toString(),
-          limit: limit.toString(),
-        });
-        const interfaces = (result.list || []).map(simplifyInterface);
+        const result = await yapiRequest(
+          "api/interface/list_cat",
+          {
+            token: getProjectToken(),
+            catid: category_id.toString(),
+            page: page.toString(),
+            limit: limit.toString(),
+          },
+          yapiInterfacePageSchema,
+        );
+        const interfaces = result.list.map(simplifyInterface);
         const categoryPage = {
           category_id,
           page,
@@ -553,17 +592,21 @@ function createServer(): McpServer {
         let reachedMatchLimit = false;
 
         for (let page = 1; page <= max_scan_pages; page += 1) {
-          const result = await yapiRequest<YapiInterfacePage>("api/interface/list", {
-            token: getProjectToken(),
-            project_id: resolvedProjectId,
-            page: page.toString(),
-            limit: SEARCH_PAGE_SIZE.toString(),
-          });
+          const result = await yapiRequest(
+            "api/interface/list",
+            {
+              token: getProjectToken(),
+              project_id: resolvedProjectId,
+              page: page.toString(),
+              limit: SEARCH_PAGE_SIZE.toString(),
+            },
+            yapiInterfacePageSchema,
+          );
           pagesScanned += 1;
           projectTotal = result.count;
           projectTotalPages = result.total;
 
-          for (const iface of result.list || []) {
+          for (const iface of result.list) {
             interfacesScanned += 1;
             if (
               iface.title?.toLowerCase().includes(searchKeyword) ||

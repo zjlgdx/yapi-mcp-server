@@ -12,6 +12,7 @@ This release uses the MCP `2026-07-28` protocol over stdio. Legacy MCP initializ
 - **Get Interface Details**: Retrieve detailed information for a specific interface by its ID
 - **Get Interface Details Batch**: Retrieve up to 10 interface details with bounded concurrency and per-ID errors
 - **Search Interfaces**: Search for interfaces by keyword in titles or paths
+- **Runtime Response Validation**: Reject malformed YAPI envelopes and tool payloads without exposing response values or request URLs
 
 ## Tools
 
@@ -186,14 +187,14 @@ Add to your Cursor MCP settings:
 
 ### Using npx (Recommended for distribution)
 
-Version `0.7.0` requires an MCP `2026-07-28` client:
+Version `0.8.0` requires an MCP `2026-07-28` client:
 
 ```json
 {
   "mcpServers": {
     "yapi": {
       "command": "npx",
-      "args": ["-y", "@zjlgdx/yapi-mcp-server@0.7.0"],
+      "args": ["-y", "@zjlgdx/yapi-mcp-server@0.8.0"],
       "env": {
         "YAPI_URL": "<your-yapi-url>",
         "YAPI_PROJECT_TOKEN": "<your-project-token>"

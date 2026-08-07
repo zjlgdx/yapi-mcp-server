@@ -33,7 +33,7 @@ dist/                # Compiled output (gitignored)
 
 - **Transport**: STDIO (standard input/output), MCP `2026-07-28` only
 - **SDK**: @modelcontextprotocol/server v2
-- **Validation**: Zod schemas for tool input validation
+- **Validation**: Zod schemas for tool inputs, outputs, YAPI envelopes, and tool-specific response payloads
 
 ## Tools
 
